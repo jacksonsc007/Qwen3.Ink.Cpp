@@ -18,6 +18,7 @@ void MatmulOperator::mat_mul_reference(struct matmul_params *params) {
 
     int m = C->row, n = C->column, k = A->column;
     // A: m x k; B: n x k; C: m x n
+    printf("\e[31m[INFO]\e[m reference matrixmul begins\n");
     for (int row = 0; row < m; row++) {
         for (int col = 0; col < n; col++) {
             float acc = 0;
@@ -91,5 +92,6 @@ void MatmulOperator::mat_mul_reference(struct matmul_params *params) {
             C->data_ptr[row * n + col] = acc;
         }
     }
+    printf("\e[31m[INFO]\e[m reference matrixmul ends\n");
 };
 }  // namespace matmul

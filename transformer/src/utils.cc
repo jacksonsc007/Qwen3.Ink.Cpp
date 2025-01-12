@@ -45,6 +45,7 @@ bool check_two_equal(float* array, float* array2, int size, float error) {
         }
     }
     if ((sq_diff / size) > error) {
+        printf("sq_diff = %f\n", sq_diff);
         return false;
     }
     return true;

@@ -1,6 +1,24 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -std=c++11 -pthread -g -O0 -w
+
+# Check if DEBUG is defined
+ifndef DEBUG
+$(warning DEBUG variable is not set. Use default value: 0.)
+DEBUG ?= 0
+endif
+
+# If DEBUG is set to 1, echo debug message
+ifeq ($(DEBUG),1)
+$(info Debug mode is ON)
+CXXFLAGS = -std=c++17 -pthread -g -O0 -w
+else ifeq ($(DEBUG),0)
+# If DEBUG is set to 0, echo non-debug message
+$(info Debug mode is OFF)
+CXXFLAGS = -std=c++17 -pthread -Ofast
+else
+# If DEBUG is set but not to 0 or 1, error out
+$(error DEBUG must be set to either 0 or 1)
+endif
 CXXFLAGS += -DIMP=$(IMP)
 
 # Executable and source files

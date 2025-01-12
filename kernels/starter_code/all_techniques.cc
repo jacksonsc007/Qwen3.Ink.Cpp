@@ -8,6 +8,7 @@
 #include "../matmul.h"
 #include "common.h"
 
+// #define QM_x86
 #ifdef QM_ARM
 #include <arm_neon.h>
 #endif
@@ -108,16 +109,16 @@ static void *all_techniques_worker_func(void *args) {
             //               8 bits (byte)
             //            low|----------------------------------------------------------|high
             //               0                         256 bit
-            __m256 accumulator = _mm256_setzero_ps();
-            float *s_ptr = &params->scales[col * k / 32];
-            float *sa_ptr = &params->A_scales[row * k / 32];
+            __m256 accumulator = _mm256_setzero_ps(); // return a vector will all elements set to 0;
+            float *s_ptr = &params->scales[col * k / 32]; // scaling factor for weight
+            float *sa_ptr = &params->A_scales[row * k / 32]; // scaling factor for activation
             const __m256i *w_start = (__m256i *)&B->int4_data_ptr[col * k / 2];
             const __m256i *a_start = (__m256i *)&A->int8_data_ptr[row * k];
             const int num_block = k / block_size;
             // Compute four blocks = 128 4-bit weights in each iteration
             for (int q = 0; q < num_block; q += 4) {
                 // lowbit mask
-                const __m256i lowMask = _mm256_set1_epi8(0xF);
+                const __m256i lowMask = _mm256_set1_epi8(0xF); //broadcast
 
                 // TODO: Unpack 128 4-bit (two __mm256i) weights into 128 8-bit (four __mm256i)
                 // (1) load 256 bit from w_strat with _mm256_loadu_si256
@@ -125,6 +126,16 @@ static void *all_techniques_worker_func(void *args) {
                 // (3) use _mm256_srli_epi16 and _mm256_and_si256 with lowMask to extract the upper half of weights
                 __m256i raw_w = _mm256_loadu_si256(w_start);
                 __m256i raw_w_next = _mm256_loadu_si256(w_start + 1);
+                // NOTE: start
+                __m256i w_blk0 = _mm256_and_si256(raw_w, lowMask);
+                __m256i w_blk1 = _mm256_and_si256(
+                    _mm256_srli_epi16(raw_w, 4),
+                    lowMask);
+                __m256i w_blk2 = _mm256_and_si256(raw_w_next, lowMask);
+                __m256i w_blk3 = _mm256_and_si256(
+                    _mm256_srli_epi16(raw_w_next, 4),
+                    lowMask);
+                // NOTE: end
 
                 // TODO: apply zero_point to weights and convert the range from (0, 15) to (-8, 7)
                 // Hint: using `_mm256_sub_epi8` to the lower-half and upper-half vectors of weights
@@ -133,6 +144,13 @@ static void *all_techniques_worker_func(void *args) {
                 // `w_0_next` and `w_128_next`, respectively
                 const __m256i zero_point = _mm256_set1_epi8(8);
                 __m256i w_0, w_128, w_0_next, w_128_next;
+                // NOTE: start
+                w_0   = _mm256_sub_epi8(w_blk0, zero_point);
+                w_128 = _mm256_sub_epi8(w_blk1, zero_point);
+                w_0_next   = _mm256_sub_epi8(w_blk2, zero_point);
+                w_128_next = _mm256_sub_epi8(w_blk3, zero_point);
+                // NOTE: end
+
 
                 // Perform int8 dot product with _mm256_maddubs_epi16
                 /* Syntax of _mm256_maddubs_epi16:
@@ -169,6 +187,12 @@ static void *all_techniques_worker_func(void *args) {
                 // dot2 = ax2 * sy2
                 // dot3 = ax_next * sy_next
                 // dot4 = ax2_next * sy2_next
+                // NOTE: start
+                dot  = _mm256_maddubs_epi16(ax, sy);
+                dot2 = _mm256_maddubs_epi16(ax2, sy2);
+                dot3 = _mm256_maddubs_epi16(ax_next, sy_next);
+                dot4 = _mm256_maddubs_epi16(ax2_next, sy2_next);
+                // NOTE: end
 
                 // Convert int32 vectors to floating point vectors
                 const __m256i ones = _mm256_set1_epi16(1);
@@ -222,7 +246,20 @@ void MatmulOperator::mat_mul_all_techniques(struct matmul_params *params) {
     assert(params->block_size == 32);  // support block size 32 for now
 
     // TODO: Thread creation
+    int cols_per_thread = C->column / num_thread;
+    for (i = 0; i < num_thread; i++)
+    {
+        threads_args[i].start_j = i * cols_per_thread;
+        threads_args[i].end_j = (i + 1) * cols_per_thread;
+        threads_args[i].params = params;
+        
+        pthread_create(&thread_pool[i], NULL, all_techniques_worker_func, &threads_args[i]);
+    }
 
     // TODO: Join threads
+    for (j = 0; j < num_thread; j++)
+    {
+        pthread_join(thread_pool[j], NULL);
+    }
 };
 }  // namespace matmul

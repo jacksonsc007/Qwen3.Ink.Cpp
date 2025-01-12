@@ -11,6 +11,7 @@ struct multithreading_loop_unrolling_thread_args {
     int start, end;
     const struct matmul_params *params;
 };
+// #define QM_x86
 static void *multithreading_loop_unrolling_worker_func(void *args) {
     struct multithreading_loop_unrolling_thread_args *mat_args =
         (struct multithreading_loop_unrolling_thread_args *)args;
@@ -88,10 +89,29 @@ static void *multithreading_loop_unrolling_worker_func(void *args) {
                 int intermediate_sum0 = 0, intermediate_sum1 = 0, intermediate_sum2 = 0, intermediate_sum3 = 0;
                 int intermediate_sum0_2nd = 0, intermediate_sum1_2nd = 0, intermediate_sum2_2nd = 0,
                     intermediate_sum3_2nd = 0;
+                int8_t mask = 0x0F;
                 for (int qj = 0; qj < 32; qj++) {
                     // TODO: decode a packed byte into two int8 in the range of (-8, 7)
-
+                    int8_t w_col0_blk0 = (w0_int4[qj] & mask) - 8;
+                    int8_t w_col0_blk1 = (w0_int4[qj] >> 4) - 8;
+                    int8_t w_col1_blk0 = (w1_int4[qj] & mask) - 8;
+                    int8_t w_col1_blk1 = (w1_int4[qj] >> 4) - 8;
+                    int8_t w_col2_blk0 = (w2_int4[qj] & mask) - 8;
+                    int8_t w_col2_blk1 = (w2_int4[qj] >> 4) - 8;
+                    int8_t w_col3_blk0 = (w3_int4[qj] & mask) - 8;
+                    int8_t w_col3_blk1 = (w3_int4[qj] >> 4) - 8;
+                    
                     // TODO: int8 multiply and accumulate operation
+                    intermediate_sum0 += a_int8[qj] * w_col0_blk0;
+                    intermediate_sum1 += a_int8[qj] * w_col1_blk0;
+                    intermediate_sum2 += a_int8[qj] * w_col2_blk0;
+                    intermediate_sum3 += a_int8[qj] * w_col3_blk0;
+
+                    intermediate_sum0_2nd += a_int8[qj + block_size] * w_col0_blk1;
+                    intermediate_sum1_2nd += a_int8[qj + block_size] * w_col1_blk1;
+                    intermediate_sum2_2nd += a_int8[qj + block_size] * w_col2_blk1;
+                    intermediate_sum3_2nd += a_int8[qj + block_size] * w_col3_blk1;
+
                 }
                 // dequantize the sum into floating point
                 acc0 += (float)intermediate_sum0 * s_a * s_w0;
@@ -131,7 +151,23 @@ void MatmulOperator::mat_mul_multithreading_loop_unrolling(struct matmul_params 
     assert(params->block_size == 32);  // support block size 32 for now
 
     // TODO: Thread creation
+    int cols_per_thread = n / num_thread;
+    // printf("cols_per_thread: %d\n", cols_per_thread);
+    for (int i = 0; i < num_thread; i++)
+    {
+        // prepare arguments for each threads
+        // For A x W, we split W by colums, resulting in [m, k] x [k, n / 4]
+        threads_args[i].start =  cols_per_thread * i;
+        threads_args[i].end =  cols_per_thread * (i + 1);
+        threads_args[i].params = params;
+        
+        pthread_create(&thread_pool[i], NULL, multithreading_loop_unrolling_worker_func, &threads_args[i]);
+    }
 
     // TODO: Join threads
+    for (int j = 0; j < num_thread; j++)
+    {
+        pthread_join(thread_pool[j], NULL);
+    }
 };
 }  // namespace matmul

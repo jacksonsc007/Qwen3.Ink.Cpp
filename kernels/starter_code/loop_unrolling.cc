@@ -8,6 +8,7 @@
 #include "../matmul.h"
 #include "common.h"
 
+
 namespace matmul {
 void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
     const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
@@ -29,6 +30,9 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 // pointer of the int8 activation
                 const signed char *a_int8 = &A->int8_data_ptr[row * k + ch];
                 // pointer of the int4 weights
+                // coordinates in linear layout memory: (ch, col) for matrix of size [k, n]
+                // coordinates in int4 transformed memory: (col, ch) for matrix of size [n, k]
+                // TODO: why divided by 2?
                 uint8_t *w0_int4 = &B->int4_data_ptr[(col * k + ch) / 2];
                 uint8_t *w1_int4 = &B->int4_data_ptr[((col + 1) * k + ch) / 2];
                 uint8_t *w2_int4 = &B->int4_data_ptr[((col + 2) * k + ch) / 2];
@@ -74,7 +78,7 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 float s_a_2nd = params->A_scales[(row * k + ch) / block_size + 1];
                 // order of weights with QM_x86:
                 // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w62,w63)
-                // QM_ARM order: (w0,w32),(w1,w33),(w2,w34),(w3,w35),(w4, w36),... (w31,w63)
+                // QM_x86 order: (w0,w32),(w1,w33),(w2,w34),(w3,w35),(w4, w36),... (w31,w63)
                 //               |--|
                 //               4 bits
                 //               |------|
@@ -88,8 +92,56 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                     intermediate_sum3_2nd = 0;
                 for (int qj = 0; qj < 32; qj++) {
                     // TODO: decode a packed byte into two int8 in the range of (-8, 7)
-
+                    // NOTE: How to decode a packed byte into two int8
+                    // NOTE: is determined by how they are encoded. Please check `quantize_methods.py`
+                    uint8_t mask = 0xF;
+                    int8_t weight_lower_4bits = (w0_int4[qj] & mask) - 8;
+                    int8_t weight_higher_4bits = (w0_int4[qj]>>4) - 8;
+                    // make sure the emulated range of int4, i.e. (-8, 7)
+                    // int8_t weight_lower_neg = weight_lower_4bits | 0xf0;
+                    // if (weight_lower_4bits & 0x08) weight_lower_4bits = weight_lower_neg;
+                    // int8_t weight_higher_neg = weight_higher_4bits | 0xf0;
+                    // if (weight_higher_4bits & 0x08) weight_higher_4bits = weight_higher_neg;
                     // TODO: int8 multiply and accumulate operation
+                    intermediate_sum0 += a_int8[qj] * weight_lower_4bits;
+                    intermediate_sum0_2nd += a_int8[qj + block_size] * weight_higher_4bits;
+                    
+                    // col-1
+                    weight_lower_4bits = (w1_int4[qj] & mask) - 8;
+                    weight_higher_4bits = (w1_int4[qj]>>4) - 8;
+                    // make sure the emulated range of int4, i.e. (-8, 7)
+                    // weight_lower_neg = weight_lower_4bits | 0xf0;
+                    // if (weight_lower_4bits & 0x08) weight_lower_4bits = weight_lower_neg;
+                    // weight_higher_neg = weight_higher_4bits | 0xf0;
+                    // if (weight_higher_4bits & 0x08) weight_higher_4bits = weight_higher_neg;
+                    // TODO: int8 multiply and accumulate operation
+                    intermediate_sum1 += a_int8[qj] * weight_lower_4bits;
+                    intermediate_sum1_2nd += a_int8[qj + block_size] * weight_higher_4bits;
+
+                    // col-2
+                    weight_lower_4bits = (w2_int4[qj] & mask) - 8;
+                    weight_higher_4bits = (w2_int4[qj]>>4) - 8;
+                    // make sure the emulated range of int4, i.e. (-8, 7)
+                    // weight_lower_neg = weight_lower_4bits | 0xf0;
+                    // if (weight_lower_4bits & 0x08) weight_lower_4bits = weight_lower_neg;
+                    // weight_higher_neg = weight_higher_4bits | 0xf0;
+                    // if (weight_higher_4bits & 0x08) weight_higher_4bits = weight_higher_neg;
+                    // TODO: int8 multiply and accumulate operation
+                    intermediate_sum2 += a_int8[qj] * weight_lower_4bits;
+                    intermediate_sum2_2nd += a_int8[qj + block_size] * weight_higher_4bits;
+
+                    // col-3
+                    weight_lower_4bits = (w3_int4[qj] & mask) - 8;
+                    weight_higher_4bits = (w3_int4[qj]>>4) - 8;
+                    // make sure the emulated range of int4, i.e. (-8, 7)
+                    // weight_lower_neg = weight_lower_4bits | 0xf0;
+                    // if (weight_lower_4bits & 0x08) weight_lower_4bits = weight_lower_neg;
+                    // weight_higher_neg = weight_higher_4bits | 0xf0;
+                    // if (weight_higher_4bits & 0x08) weight_higher_4bits = weight_higher_neg;
+                    // TODO: int8 multiply and accumulate operation
+                    intermediate_sum3 += a_int8[qj] * weight_lower_4bits;
+                    intermediate_sum3_2nd += a_int8[qj + block_size] * weight_higher_4bits;
+
                 }
                 // dequantize the sum into floating point
                 acc0 += (float)intermediate_sum0 * s_a * s_w0;
