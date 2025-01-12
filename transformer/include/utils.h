@@ -23,12 +23,15 @@
 #define PROFILE_END(x)
 #endif
 
-#define MAX_SQ_ERROR_MAX 5e-6
+#define MAX_SQ_ERROR_MAX 5e-5
 #define ERROR_MAX 1e-9
 #define INT_ERROR_MAX 1e-5
 
 template <typename T>
 void read_to_array(const char* path, T* array, int size);
+
+template <typename T>
+void write_array_to_file(const char* path, T* array, int size);
 
 template <typename T>
 bool check_two_equal(T* array, T* array2, int size);

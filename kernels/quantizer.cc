@@ -53,8 +53,11 @@ void quantize_fp32_to_int8(float* A, int8_t* qA, float* sA, int size, int block_
 }
 #endif
 #ifdef QM_x86
+// TODOink: understand the operation here
 #include <immintrin.h>
 void quantize_fp32_to_int8(float* A, int8_t* qA, float* sA, int size, int block_size) {
+    /* Quantize the activation from float32 into int8, based on the pre-computed scaling factor.
+       NOTE that The weight is already quantized.*/
     int nb = size / 32;
     for (int i = 0; i < nb; i++) {
         // Load elements into 4 AVX vectors

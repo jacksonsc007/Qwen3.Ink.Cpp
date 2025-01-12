@@ -55,7 +55,7 @@ std::vector<int> LLaMAGenerate(void *model_ptr, int model_type, std::string text
             if (has_past_kv) STATS_START("Inference latency");
             model_output = model->forward(model_input);
             if (has_past_kv) STATS_END("Inference latency");
-            past_keys = model_output.past_keys;
+            past_keys = model_output.past_keys; //TODO: Is there any memory copy?
             past_values = model_output.past_values;
             // memcpy model_ouput.logits[-1] to logits
             memcpy(logits.data(), &model_output.logits.m_data[(sqlen - 1) * generation_config.n_vocab],

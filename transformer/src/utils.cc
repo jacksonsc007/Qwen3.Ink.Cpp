@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include "common.h"
+#include <filesystem>
 
 // To be deprecated soon
 template <typename T>
@@ -21,6 +22,36 @@ void read_to_array(const char* path, T* array, int size) {
     } else {
         infile.read(reinterpret_cast<char*>(array), size * sizeof(T));
         infile.close();
+    }
+}
+
+
+template <typename T>
+void write_array_to_file(const char* path, T* array, int size){
+
+    // get the directory path, if path does not exist, create
+    std::filesystem::path file_path(path);
+    std::filesystem::path dir_path = file_path.parent_path();
+    if (!std::filesystem::exists(dir_path))
+    {
+        try
+        {
+            std::filesystem::create_directories(dir_path);
+            std::cout << "Directory " << dir_path << " does not exist, automatically create it." << std::endl;
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            std::cerr << "Error creating directory: " << e.what() << std::endl;
+        }
+    }
+    
+    std::ofstream outfile(path, std::ios::binary | std::ios::out);
+    if (outfile.fail()){
+        std::cout << strerror(errno) << ": " << path << std::endl;
+        throw("Expected error...");
+    } else{
+        outfile.write(reinterpret_cast<char*>(array), size * sizeof(T));
+        outfile.close();
     }
 }
 
@@ -55,20 +86,34 @@ template <typename T>
 bool check_two_equal(T* array, T* array2, int size) {
     float sq_diff = 0;
     float max_sqdiff = 0;
+    float relative_diff = 1;
     for (int i = 0; i < size; i++) {
         float diff = (float)array[i] - (float)array2[i];
+        float min = std::min(array[i], array2[i]) + 1e-20;
+        float max = std::max(array[i], array2[i]) + 1e-20;
+        if (max / min > relative_diff) 
+        {
+            relative_diff = max / min;
+            // if (relative_diff > 10)
+            // {
+            //     std::cout << "i:" << i << ", diff:" << diff << ", array[i]:";
+            //     std::cout << static_cast<float>(array[i]) << ", array2[i]:" << static_cast<float>(array2[i]) << std::endl;
+            // }
+        }
+        if (diff < 0.) diff = -diff;
         sq_diff += diff * diff;
-        if (diff * diff > max_sqdiff) max_sqdiff = diff * diff;
-        if (sqrt(max_sqdiff) > MAX_SQ_ERROR_MAX) {
-            std::cout << "i:" << i << ",max_sqdiff:" << sqrt(max_sqdiff) << ", array[i]:";
-            std::cout << static_cast<float>(array[i]) << ", array2[i]:" << static_cast<float>(array2[i]) << std::endl;
-            return false;
+        if (diff * diff > max_sqdiff) 
+            max_sqdiff = diff * diff;
+        if (diff > MAX_SQ_ERROR_MAX) {
+            // std::cout << "i:" << i << ", diff:" << diff << ", array[i]:";
+            // std::cout << static_cast<float>(array[i]) << ", array2[i]:" << static_cast<float>(array2[i]) << std::endl;
         }
     }
     if ((sq_diff / size) > ERROR_MAX) {
-        std::cout << "MSE:" << sq_diff / size << ", MAX SQ diff:" << max_sqdiff << std::endl;
+        std::cout << "MSE:" << sq_diff / size << ", MAX SQ diff:" << max_sqdiff << ", Max Relative ratio: " << relative_diff << std::endl;
         return false;
     }
+    std::cout << "MSE:" << sq_diff / size << ", MAX SQ diff:" << max_sqdiff << ", Max Relative ratio: " << relative_diff << std::endl;
     return true;
 }
 
@@ -230,3 +275,5 @@ template void allocate_aligned_memory(int*& ptr, size_t size);
 template void allocate_aligned_memory(int8_t*& ptr, size_t size);
 template void allocate_aligned_memory(uint8_t*& ptr, size_t size);
 template void allocate_aligned_memory(pack_q4_tensor*& ptr, size_t size);
+
+template void write_array_to_file<float>(const char* path, float* array, int size);

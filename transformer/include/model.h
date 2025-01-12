@@ -2,6 +2,45 @@
 #define MODEL_H
 #include <cstring>
 
+struct qwen_config {
+    int batch;
+    int num_heads;
+    int num_layers;
+    int max_sqlen;
+    int embed_dim;
+    int hidden_dim;
+    int vocsize;
+    int padding_idx;
+    int qk;  // group size
+    // for tokenizer
+    int eos_token_id;
+    int pad_token_id;
+    int im_start_id;
+    int im_end_id;
+
+    qwen_config() : qwen_config(1, 12, 12, 512, 768, 3072, 50272, 1) {
+        eos_token_id = 151643;
+        pad_token_id = 151643;
+        im_start_id = 151644;
+        im_end_id = 151645;
+    }
+    qwen_config(int batch, int num_heads, int num_layers, int max_sqlen, int embed_dim, int hidden_dim, int vocsize,
+                 int padding_idx)
+        : batch(batch),
+          num_heads(num_heads),
+          num_layers(num_layers),
+          max_sqlen(max_sqlen),
+          embed_dim(embed_dim),
+          hidden_dim(hidden_dim),
+          vocsize(vocsize),
+          padding_idx(padding_idx) 
+    {
+        eos_token_id = 151643;
+        pad_token_id = 151643;
+        im_start_id = 151644;
+        im_end_id = 151645;
+    }
+};
 struct model_config {
     int batch;
     int num_heads;

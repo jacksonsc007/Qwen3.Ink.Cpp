@@ -30,9 +30,9 @@ void Linear_FP::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
     Matrix3D<float> b = this->weight;
     const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
-    PROFILE_START_FLOPS(profile_name, ops);
+    // PROFILE_START_FLOPS(profile_name, ops);
 
-    // a: m x k   b: n x k   c: m x n
+    // a: 1 x m x k   b: 1 x n x k   c: 1 x m x n
     assert(a.m_dim_x == b.m_dim_x);  // batch dim
     assert(a.m_dim_z == b.m_dim_z);  // k
     assert(a.m_dim_y == c.m_dim_y);  // m
@@ -45,19 +45,61 @@ void Linear_FP::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
     params.A.row = a.m_dim_y;
     params.A.column = a.m_dim_z;
     params.A.data_ptr = a.m_data;
+
     params.B.row = b.m_dim_z;     // k
     params.B.column = b.m_dim_y;  // n
     params.B.data_ptr = b.m_data;
+
     params.C.row = c.m_dim_y;
     params.C.column = c.m_dim_z;
     params.C.data_ptr = c.m_data;
+
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;
 
     matmul::MatmulOperator op = matmul::MatmulOperator();
+#if FP32IMP == 0
     op.mat_mul_accelerator_transposed_fastover_column((const struct matmul_params *)&params);
+#elif FP32IMP == 1
+    op.mat_mul_loop_unrolling4x4_fp32(&params);
+#elif FP32IMP == 2
+    op.mat_mul_accelerator_transposed_fastover_column_fp32_avx((const struct matmul_params *)&params);
+#elif FP32IMP == 3
+    op.mat_mul_loop_unrolling4x4_mt_fp32(&params);
+#elif FP32IMP == 4
+    op.mat_mul_loop_unrolling4x4_mt_avx_fp32(&params);
+#elif FP32IMP == 5
+    op.mat_mul_loop_unrolling4x4_avx_fp32(&params);
+#elif FP32IMP == 6
+    op.mat_mul_avx_fp32(&params);
+#elif FP32IMP == 7
+    op.mat_mul_tiling_fp32(&params);
+#elif FP32IMP == 8
+    op.mat_mul_loop_unrolling4x4_tiling_fp32(&params);
+#elif FP32IMP == 9
+    op.mat_mul_multithreading_fp32(&params);
+#elif FP32IMP == 10
+    op.mat_mul_multithreading_tiling_fp32(&params);
+#elif FP32IMP == 11
+    op.mat_mul_loop_unrolling_second_innermost_4x4_fp32(&params);
+#elif FP32IMP == 12
+    op.matMul_loopUnrolling2level4x4_fp32(&params);
+#elif FP32IMP == 13
+    op.matMul_loopUnrollingSecondInnermost4x4_avx_fp32(&params) ;
+#elif FP32IMP == 14
+    op.mat_mul_loop_unrolling4x4_secondInnermost_tiling_fp32(&params);
+#elif FP32IMP == 15
+    op.matMul_tiling2level_fp32(&params);
+#elif FP32IMP == 16
+    op.mat_mul_loop_unrolling4x4_secondInnermost_tiling2level_fp32(&params);
+#elif FP32IMP == 17
+    op.matMul_avx_tiling_fp32(&params);
+#elif FP32IMP == 18
+    op.matMul_avx_tiling2level_fp32(&params);
 
-    PROFILE_END(profile_name);
+#endif
+
+    // PROFILE_END(profile_name);
     return;
 }
 

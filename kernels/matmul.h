@@ -20,12 +20,25 @@ struct matrix {
     uint8_t *uint8_data_ptr;
     uint8_t *int4_data_ptr;
     struct quantization_params qparams;
-    int length() { return row * column; }
+    int length() const { return row * column; }
 };
 
 struct optimization_params {
-    int blk_size;
+    int blk_size; // the size of cache block
     int num_thread = 8;
+};
+
+struct qwen_matmul_params {
+    struct matrix A, B, C, bias;
+    struct optimization_params opt_params;
+    float alpha, beta;
+    // for int4
+    float *scales, *offset;
+    int8_t * zero_point;
+    int block_size; // the size of quantization block
+    // for int8 activation
+    float *A_scales;
+    int8_t A_zero_point;
 };
 
 struct matmul_params {
@@ -33,8 +46,9 @@ struct matmul_params {
     struct optimization_params opt_params;
     float alpha, beta;
     // for int4
-    float *scales, *offset, *zero_point;
-    int block_size;
+    float *scales, *offset;
+    float * zero_point;
+    int block_size; // the size of quantization block
     // for int8 activation
     float *A_scales;
     int8_t A_zero_point;
@@ -71,6 +85,37 @@ class MatmulOperator {
     void mat_mul_accelerator_int8_int4_fast_no_offset(struct matmul_params *params);
     void naive_mat_mul_int4(const struct matmul_params *params);
     void naive_mat_mul_int4_with_offset(const struct matmul_params *params);
+    // fp32
+    void mat_mul_loop_unrolling4x1_fp32(struct matmul_params *params);
+    void mat_mul_loop_unrolling4x4_fp32(struct matmul_params *params);
+    void mat_mul_loop_unrolling8x8_fp32(struct matmul_params *params);
+    void mat_mul_accelerator_transposed_fastover_column_fp32_avx(const struct matmul_params *params);
+    void mat_mul_loop_unrolling4x4_mt_fp32(struct matmul_params *params);
+    void mat_mul_loop_unrolling4x4_mt_avx_fp32(struct matmul_params *params);
+    void mat_mul_loop_unrolling4x4_avx_fp32(struct matmul_params *params);
+    void mat_mul_avx_fp32(struct matmul_params *params);
+    void mat_mul_tiling_fp32(struct matmul_params *params);
+    void mat_mul_loop_unrolling4x4_tiling_fp32(struct matmul_params *params);
+    void mat_mul_multithreading_fp32(struct matmul_params* params);
+    void mat_mul_multithreading_tiling_fp32(struct matmul_params* params);
+    void mat_mul_loop_unrolling_second_innermost_4x4_fp32(struct matmul_params *params);
+    void matMul_loopUnrolling2level4x4_fp32(struct matmul_params *params);
+    void matMul_loopUnrollingSecondInnermost4x4_avx_fp32(struct matmul_params *params) ;
+    void mat_mul_loop_unrolling4x4_secondInnermost_tiling_fp32(struct matmul_params *params);
+    void matMul_tiling2level_fp32(struct matmul_params *params);
+    void mat_mul_loop_unrolling4x4_secondInnermost_tiling2level_fp32(struct matmul_params *params);
+    void matMul_avx_tiling_fp32(struct matmul_params *params);
+    void matMul_avx_tiling2level_fp32(struct matmul_params *params);
+    
+    // int4 qwen
+    void matMul_int4Reference_pseudoQ_qwen(struct qwen_matmul_params *params);
+    void matMul_int4Reference_qwen(struct qwen_matmul_params *params);
+    void matMul_int4_Tiling1vl_qwen(struct qwen_matmul_params *params);
+    void matMul_int4_unrolling2x2_qwen(struct qwen_matmul_params *params);
+    void matMul_int4_avx_qwen(struct qwen_matmul_params *params);
+    void matMul_int4_multiThread_qwen(struct qwen_matmul_params *params);
+    void matMul_int4_multiThread_avx_qwen(struct qwen_matmul_params *params);
+
     // w8a4 code template functions
     void mat_mul_reference(struct matmul_params *params);
     void mat_mul_loop_unrolling(struct matmul_params *params);

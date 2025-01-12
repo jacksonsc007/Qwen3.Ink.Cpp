@@ -75,6 +75,37 @@ class Matrix3D {
         }
         return sum;
     }
+    
+    T mean() const{
+        return this->sum() / this->length();
+    }
+    
+    T max() const{
+        T max = this->m_data[0];
+        for (int i = 0; i < this->length(); i++) {
+            if (this->m_data[i] > max) {
+                max = this->m_data[i];
+            }
+        }
+        return max;
+    }
+    
+    T min() const{
+        T min = this->m_data[0];
+        for (int i = 0; i < this->length(); i++) {
+            if (this->m_data[i] < min) {
+                min = this->m_data[i];
+            }
+        }
+        return min;
+    }
+    
+    void statistics() const
+    {
+        std::cout << "max: " << this->max() << ", min: " << this->min() << ", mean: " << this->mean() << ", sum: " << this->sum() << std::endl; 
+    }
+    
+
     T sum(int size) const {
         T sum = 0;
         for (int i = 0; i < size; i++) {

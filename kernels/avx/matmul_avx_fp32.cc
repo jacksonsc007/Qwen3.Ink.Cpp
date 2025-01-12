@@ -60,7 +60,7 @@ void *mat_mul_transposed_fastover_column_func(void *args) {
     return NULL;
 }
 
-void MatmulOperator::mat_mul_accelerator_transposed_fastover_column(const struct matmul_params *params) {
+void MatmulOperator::mat_mul_accelerator_transposed_fastover_column_fp32_avx(const struct matmul_params *params) {
     int i, j, k;
 
     int num_thread = params->opt_params.num_thread;

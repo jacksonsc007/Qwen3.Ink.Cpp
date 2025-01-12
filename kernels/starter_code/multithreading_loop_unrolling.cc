@@ -134,7 +134,84 @@ static void *multithreading_loop_unrolling_worker_func(void *args) {
     return NULL;
 }
 
+ void *multithreading_loop_unrolling_worker_func_fp32(void *args)
+{
+    struct multithreading_loop_unrolling_thread_args *mat_args =
+        (struct multithreading_loop_unrolling_thread_args *) args;
+    const struct matmul_params *params = mat_args -> params;
+    const int start_col_id = mat_args -> start;
+    const int end_col_id = mat_args -> end;
+    
+    // printf("\e[31m[INFO]\e[m Fp32 unrolling version\n");
+    // A: activation        (m, k) 
+    // B: weight with transposed mem layout (k, n)
+    // C: result            (m, n)
+    const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
+    int m = C->row, n = C->column, k = A->column;
+    for (int row = 0; row < m; row++)
+        for (int col = start_col_id; col < end_col_id; col++)
+        {
+            float sum0 = 0.0;
+            float sum1 = 0.0;
+            float sum2 = 0.0;
+            float sum3 = 0.0;
+            int ch = 0;
+            for (; ch < k - 4;)
+            {
+                sum0 += A->data_ptr[row * k + ch]     * B->data_ptr[(col) * k + ch   ];
+                sum1 += A->data_ptr[row * k + ch + 1] * B->data_ptr[(col) * k + ch + 1];
+                sum2 += A->data_ptr[row * k + ch + 2] * B->data_ptr[(col) * k + ch + 2];
+                sum3 += A->data_ptr[row * k + ch + 3] * B->data_ptr[(col) * k + ch + 3];
+                ch += 4;
+            }
+            for (; ch < k; ch++)
+            {
+                // printf("\e[31m[INFO]\e[m dealing with remaining channels...\n");
+                sum0 += A->data_ptr[row * k + ch]     * B->data_ptr[(col) * k + ch];
+
+            }
+            C->data_ptr[row * n + col] = sum0 + sum1 + sum2 + sum3;
+        }
+    // NOTE: If we forget to add the following line, the program works in debug mode,
+    // but crashes in release mode.
+    return NULL;
+} 
 namespace matmul {
+
+void MatmulOperator::mat_mul_loop_unrolling4x4_mt_fp32(struct matmul_params *params)
+{
+    const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
+    int m = C->row, n = C->column, k = A->column;
+    assert(k == B->row);
+    const int num_threads = 8;
+    int cols_per_thread = n / num_threads;
+    int remaining_cols = n % num_threads;
+    if (remaining_cols != 0)
+    {
+        std::cerr << "columns should be a multple of num_threads" << std::endl;
+        throw("columns should be a multple of num_threads");
+        // throw std::runtime_error("remaining_cols == 0");
+    }
+
+    // NOTE: In release mode, assertion is disabled.
+    // assert (n % num_threads == 0);
+    pthread_t thread_pool[num_threads];
+    struct multithreading_loop_unrolling_thread_args thread_args[num_threads];
+    for (int i = 0; i < num_threads; i++) {
+        thread_args[i].params = params;
+        thread_args[i].start = i * n / num_threads;
+        thread_args[i].end = (i + 1) * n / num_threads;
+        
+        pthread_create(&thread_pool[i], NULL, multithreading_loop_unrolling_worker_func_fp32, &thread_args[i]);
+    }
+    
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(thread_pool[i], NULL);
+    }
+}
+
+
+
 void MatmulOperator::mat_mul_multithreading_loop_unrolling(struct matmul_params *params) {
     const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
     const int block_size = params->block_size;

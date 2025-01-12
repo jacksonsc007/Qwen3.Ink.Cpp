@@ -10,6 +10,8 @@
 
 // #define QM_x86
 
+#define QM_x86
+
 #ifdef QM_ARM
 #include <arm_neon.h>
 #endif
@@ -17,6 +19,10 @@
 #include <immintrin.h>
 #endif
 namespace matmul {
+
+
+
+
 void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {
     const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
     const int block_size = params->block_size;  // block_size = 32
@@ -119,6 +125,9 @@ void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {
                 // (1) load 256 bit from w_strat with _mm256_loadu_si256
                 // (2) use `_mm256_and_si256` and lowMask to extract the lower half of wegihts
                 // (3) use `_mm256_srli_epi16` and `_mm256_and_si256` with lowMask to extract the upper half of weights
+                //
+                // NOTE: _mm256_loadu_si256 loads 256 bits which is the size of 64 4-bit weights, or the size of two blocks(blocksize=32) weight.
+                // Thus, we need to load two blocks (64) 8-bit actications.
                 __m256i raw_w = _mm256_loadu_si256(w_start);
                 __m256i raw_w_low = _mm256_and_si256(raw_w, lowMask);
                 __m256i raw_w_high = (_mm256_and_si256(_mm256_srli_epi16(raw_w, 4), lowMask));
@@ -126,6 +135,8 @@ void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {
                 // TODO: apply zero_point to weights and convert the range from (0, 15) to (-8, 7)
                 // Hint: using `_mm256_sub_epi8` to the lower-half and upper-half vectors of weights
                 // Note: Store the lower half and upper half of weights into `w_0` and `w_128`, respectively
+                // NOTE: This step corresponds to (q(x) - Z) in X = s( q(x) - Z) + (offset, if any)
+                // TODO: Why not directly set zeropoint as 0 and keep the range directly as (-8, 7)?
                 const __m256i zero_point = _mm256_set1_epi8(8);
                 __m256i w_0, w_128;
                 w_0 = _mm256_sub_epi8(raw_w_low, zero_point);
@@ -158,6 +169,7 @@ void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {
                 // Hint: use `_mm256_maddubs_epi16` to complete the following computation
                 // dot = ax * sy
                 // dot2 = ax2 * sy2
+                // TODO: How to prevent overflow? Answer: Because the original value fall in int4.
                 dot = _mm256_maddubs_epi16(ax, sy);
                 dot2 = _mm256_maddubs_epi16(ax2, sy2);
 
