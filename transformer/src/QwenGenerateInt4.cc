@@ -15,7 +15,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
     std::vector<int> embd; 
     std::vector<int> generate_ids; // return value
 
-    const int max_token_length = 512;
+    const int max_token_length = 2048;
     const int vocab_size = generation_config.n_vocab;
     std::vector<int> input_ids(max_token_length);
     // ===========================
@@ -55,14 +55,19 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
             assert (sqlen == 1);
             Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
             model_input = {input_ids_mat, past_keys, past_values};
+            STATS_START("[ Autoregressive Generation Phase ]");
+            model_output = model->forward(model_input);
+            STATS_END("[ Autoregressive Generation Phase ]");
         }
         else
         {
             sqlen = input_ids.size();
             Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
             model_input = {input_ids_mat};
+            STATS_START("[ Prompt Phase ]");
+            model_output = model->forward(model_input);
+            STATS_END("[ Prompt Phase ]");
         }
-        model_output = model->forward(model_input);
         past_keys = model_output.past_keys;
         past_values = model_output.past_values;
         // we only need the logit of last token

@@ -71,6 +71,7 @@ auto QwenTokenizer::build_prompt(const std::vector<std::string> &history) const 
 
 auto QwenTokenizer::encode(const std::string &text, int max_length) const -> std::vector<int> {
   auto ids = tokenizer.encode(text);
+  printf("\e[31m[Tokenizer]\e[m Input token length: %zu\n", ids.size());
   if ((int)ids.size() > max_length) {
     ids.erase(ids.begin(), ids.end() - max_length);
   }

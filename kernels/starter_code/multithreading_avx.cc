@@ -34,7 +34,7 @@ static void * qwen_int4_multi_thread_avx_func(void * args_)
     float *scale = params->scales, *offset = params->offset;
     // printf("\e[31m[INFO]\e[m avx int4 qwen\n");
 
-    quantize_fp32_to_int8(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, quantization_block_size);
+    quantize_fp32_to_int8_q80(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, quantization_block_size);
 
     int m = C->row, n = C->column, k = A->column;
     // A: m x k; B: n x k; C: m x n
@@ -138,7 +138,7 @@ void MatmulOperator::matMul_int4_multiThread_avx_qwen(struct qwen_matmul_params 
     const int block_size = params->block_size;  // block_size = 32
     float *scale = params->scales, *offset = params->offset;
     // printf("\e[31m[INFO]\e[m mt qwen int4\n");
-    quantize_fp32_to_int8(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, block_size);
+    quantize_fp32_to_int8_q80(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, block_size);
 
     int m = C->row, n = C->column, k = A->column;
     const int n_threads = 8;

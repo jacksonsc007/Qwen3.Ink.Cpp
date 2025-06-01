@@ -84,10 +84,12 @@ class Qwen_Linear_with_bias_Int4
         has_bias = false;
 
         // debugging
+        #ifdef qwen_debug_fp32
         float * fp32_weight_arr;
         allocate_aligned_memory(fp32_weight_arr,  weight_size * sizeof(float));
         fp32_weight = Matrix3D<float>(fp32_weight_arr, weight_dim_x, weight_dim_y, weight_dim_z);
         fp32_weight.load((path     + "weight_fp32.bin").c_str());
+        #endif
     };
 
     Qwen_Linear_with_bias_Int4(std::string path, int weight_dim_x, int weight_dim_y,int weight_dim_z, 
@@ -121,11 +123,12 @@ class Qwen_Linear_with_bias_Int4
         zero_point.load((path + "zero_point_int4.bin").c_str());
         has_bias = true;
         
-        // debugging
+        #ifdef qwen_debug_fp32
         float * fp32_weight_arr;
         allocate_aligned_memory(fp32_weight_arr,  weight_size * sizeof(float));
         fp32_weight = Matrix3D<float>(fp32_weight_arr, weight_dim_x, weight_dim_y, weight_dim_z);
         fp32_weight.load((path     + "weight_fp32.bin").c_str());
+        #endif
 
 
     };

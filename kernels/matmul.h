@@ -2,6 +2,8 @@
 #include <sys/time.h>
 
 void quantize_fp32_to_int8(float *A, int8_t *qA, float *sA, int size, int block_size);
+void quantize_fp32_to_int8_q80(float *A, int8_t *qA, float *sA, int size, int block_size);
+void quantize_fp32_to_int8_q81(float* A, int8_t* qA, float* sA, float* scaledSumA, int size, int block_size);
 
 // Data structures
 struct quantization_params {
@@ -38,7 +40,8 @@ struct qwen_matmul_params {
     int block_size; // the size of quantization block
     // for int8 activation
     float *A_scales;
-    int8_t A_zero_point;
+    int8_t* A_zero_point;
+    float *A_scaled_sum;
 };
 
 struct matmul_params {
@@ -52,6 +55,7 @@ struct matmul_params {
     // for int8 activation
     float *A_scales;
     int8_t A_zero_point;
+    float *A_scaled_sum;
 };
 
 struct thread_args {
@@ -115,6 +119,12 @@ class MatmulOperator {
     void matMul_int4_avx_qwen(struct qwen_matmul_params *params);
     void matMul_int4_multiThread_qwen(struct qwen_matmul_params *params);
     void matMul_int4_multiThread_avx_qwen(struct qwen_matmul_params *params);
+    void qgemv_A80W4z_kernel(struct qwen_matmul_params *params);
+    void qgemm_A80W4z_kernel(struct qwen_matmul_params *params);
+    void qgemv_A80W40_kernel(struct qwen_matmul_params *params);
+    void qgemm_A80W40_kernel(struct qwen_matmul_params *params);
+
+
 
     // w8a4 code template functions
     void mat_mul_reference(struct matmul_params *params);

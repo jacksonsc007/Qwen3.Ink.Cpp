@@ -22,7 +22,7 @@ assets/
 *.bin
 !ggml-vocab.bin
 *.zip
-*.txt
+# *.txt
 *.json
 test_*
 !test_*.cc
@@ -30,3 +30,4 @@ demo
 profile_*
 !profile_*.cc
 libtorch/
+build/

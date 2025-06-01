@@ -3,7 +3,8 @@
 
 std::map<std::string, int> model_config = 
 {
-    {"qwen-7b-chat", 0}
+    {"qwen-7b-chat", 0},
+    {"qwen-7b-chat-A80Q40", 1}
 };
 
 std::map<std::string, int> data_format_config = 
@@ -15,14 +16,15 @@ std::map<std::string, int> data_format_config =
 
 std::map<std::string, std::string> model_path_config =
 {
-    {"qwen-7b-chat", "../INT4/models/qwen-7b-chat"},
+    {"qwen-7b-chat", "INT4/models/qwen-7b-chat"},
+    {"qwen-7b-chat-A80Q40", "INT4/models/qwen-7b-chat-A80W40"}
 };
 
 
 int main(int argc, char** argv)
 {
     std::string target_model = "qwen-7b-chat";
-    std::string target_data_type = "FP32";
+    std::string target_data_type = "INT4";
 
     if (argc == 3)
     {
@@ -73,7 +75,7 @@ int main(int argc, char** argv)
     printf("\e[31m[INFO]\e[m Loading Model ...\n");
     std::string model_path = model_path_config[target_model];
     qwen_params generation_config;
-    if (data_format_config[target_data_type] == FP32)
+    if (data_format_config[target_data_type] == INT4)
     {
         int bs = 1;
         int num_heads = 32;
@@ -87,8 +89,8 @@ int main(int argc, char** argv)
         assert (bs == 1); // only support bs = 1
         qwen_config config(bs, num_heads, num_layers, max_sqlen, embed_dim, hidden_dim, vocsize, padding_idx);
         Int4QwenForCausalLM model = Int4QwenForCausalLM(model_path, config);
-    printf("\e[32m[INFO]\e[m Model Loaded ...\n");
-        std::string tiktoken_path = "../qwen-7b-chat/qwen.tiktoken";
+        printf("\e[32m[INFO]\e[m Model Loaded ... from %s\n", model_path.c_str());
+        std::string tiktoken_path = "qwen-7b-chat/qwen.tiktoken";
         
         while(true){
             std::cout << "USER: ";

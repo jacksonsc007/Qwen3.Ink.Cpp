@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstdio>
 #include <iomanip>
 
 #include "utils.h"
@@ -57,7 +58,12 @@ void Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &a, Matrix3D<floa
     Matrix3D<uint8_t> b = this->weight;
     const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
-    PROFILE_START_FLOPS(profile_name, ops);
+
+    char buffer[60];
+    std::sprintf(buffer, "[%s: %d x %d x %d]", profile_name.c_str(), m, n, k);
+    std::string formated_profile_name = buffer;
+
+    PROFILE_START_FLOPS(formated_profile_name, ops);
 
                                          // A: 1 x m x k float32  B: 1 x n x (k / 2) uint8   C: m x n (float32)
     assert(a.m_dim_x == b.m_dim_x);      // batch dim
@@ -93,18 +99,31 @@ void Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &a, Matrix3D<floa
     params.A_scales = x_scale;
     // op.matMul_int4_multiThread_qwen(&params);
     // op.matMul_int4_avx_qwen(&params);
-    op.matMul_int4_multiThread_avx_qwen(&params);
+    // op.matMul_int4_multiThread_avx_qwen(&params);
     // op.matMul_int4_Tiling1vl_qwen(&params);
     // op.matMul_int4_unrolling2x2_qwen(&params);
     // op.matMul_int4Reference_qwen(&params);
+    // op.matMul_int4_multiThread_avx_qwen(&params);
     
+    if (m != 1)
+    {
+        op.qgemm_A80W40_kernel(&params);
+    }
+    else 
+    {
+        op.qgemv_A80W40_kernel(&params);
+    }
 
 
     // add bias TODO: simd
     if (has_bias)
     {
+        char buffer[60];
+        std::sprintf(buffer, "[%s bias_add: %d x %d]", profile_name.c_str(), m, n);
+        std::string formated_profile_name = buffer;
         Matrix3D<float> bias = this->bias; // (1, n, 1)
         assert (bias.m_dim_y == b.m_dim_y);
+        PROFILE_START(formated_profile_name);
         for (int i = 0; i < m; i++)
         {
             for (int j = 0; j < n; j++)
@@ -112,9 +131,10 @@ void Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &a, Matrix3D<floa
                 c(0, i, j) += bias(0, j, 0);
             }
         }
+        PROFILE_END(formated_profile_name);
     }
 
-    PROFILE_END(profile_name);
+    PROFILE_END(formated_profile_name);
     return;
 }
 
