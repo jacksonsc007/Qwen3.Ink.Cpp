@@ -7,6 +7,7 @@
 std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
     const struct qwen_params generation_config, std::string tiktoken_path, bool interactive, qwen_config config)
 {
+    PROFILE_START("Inference Total Time");
     // TODO: Distinguish the notion of context here with the size of KV Cache
     const int32_t max_context_length = generation_config.n_ctx;
     std::vector<int> last_n_tokens(max_context_length); // hold the generated tokens as context
@@ -24,6 +25,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
     #if DEBUG==1
     printf("\e[31m[INFO]\e[m Building Tokenizer...\n");
     #endif
+    PROFILE_START("Tokenize");
     QwenTokenizer tokenizer = QwenTokenizer(tiktoken_path, config);
     #if DEBUG==1
     printf("\e[32m[INFO]\e[m Tokenizer built successfully\n");
@@ -37,6 +39,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
         printf("converted text: \n%s\n", restored_text.c_str());
         std::abort();
     }
+    PROFILE_END("Tokenize");
     
     
     if (interactive) std::cout << "ASSISTANT: " << std::endl;
@@ -85,6 +88,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
     // ===========================
     // Stage3: Sampling strategy
     // ===========================
+        PROFILE_START("Decoding");
         std::vector<OPT_token_data> candidates; 
         candidates.reserve(vocab_size);
         for (int token_id = 0; token_id < vocab_size; token_id++)
@@ -170,6 +174,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
             std::cout << output_text << std::flush;
         }
         --n_remain;
+        PROFILE_END("Decoding");
 
         // printf("\e[31m[INFO]\e[m Context Length: (%zu / %d)\n", last_n_tokens.size(), max_context_length);
     }
@@ -178,6 +183,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
         printf("\n\e[31m[INFO]\e[m Close Chat due to limited token budget, please consider increase the generation config.\n");
     }
     if (interactive) std::cout << std::endl;
+    PROFILE_END("Inference Total Time");
     Profiler::getInstance().report_internal();
     Profiler::getInstance().reset();
     return generate_ids;

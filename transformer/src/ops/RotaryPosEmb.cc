@@ -25,27 +25,33 @@ void RotaryPosEmb::forward(Matrix3D<float> &query, Matrix3D<float> &key,
   // rotate_half: torch.cat((-x2, x1), dim=-1)
 
   int half = head_embed / 2;
-  for (int b = 0; b < num_heads; b++) {
-    for (int i = 0; i < len; i++) {
+  for (int b = 0; b < num_heads; b++) 
+  {
+    for (int i = 0; i < len; i++) 
+    {
       // first half
-      for (int j = 0; j < half; j++) {
+      for (int j = 0; j < half; j++) 
+      {
         q_buf[j] = -1 * query(b, i, j + half);
         k_buf[j] = -1 * key(b, i, j + half);
       }
       // second half
-      for (int j = half; j < head_embed; j++) {
+      for (int j = half; j < head_embed; j++) 
+      {
         q_buf[j] = query(b, i, j - half);
         k_buf[j] = key(b, i, j - half);
       }
 
-      for (int j = 0; j < head_embed; j++) {
-        query(b, i, j) = ((query(b, i, j) * cos(0, i + start_idx, j)) +
-                          (q_buf[j] * sin(0, i + start_idx, j)));
+      for (int j = 0; j < head_embed; j++) 
+      {
+        query(b, i, j) = (
+          (query(b, i, j) * cos(0, i + start_idx, j)) +
+          (q_buf[j] * sin(0, i + start_idx, j))
+        );
         key(b, i, j) = ((key(b, i, j) * cos(0, i + start_idx, j)) +
                         (k_buf[j] * sin(0, i + start_idx, j)));
       }
     }
   }
-
   PROFILE_END(profile_name);
 }

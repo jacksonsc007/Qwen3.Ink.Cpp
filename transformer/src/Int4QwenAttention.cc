@@ -39,7 +39,7 @@ static float *attn_output_fp_arr;
 // @abstract: reshape a matrix of shape (1, sqlen, embed_dim) to shape (num_head, sqlen, head_dim)
 void Int4QwenAttention::reshape_headfirst(Matrix3D<float> unshape, Matrix3D<float> shaped, int sqlen)
 {
-    PROFILE_START("Int4QwenAttention::reshape_headfirst");
+    PROFILE_START("Int4QwenAttention:: reshape_headfirst");
     assert(unshape.m_dim_x == 1);  // bsz == 1
     assert(unshape.m_dim_y == sqlen);
     assert(unshape.m_dim_z == this->num_head * this->head_dim);
@@ -54,13 +54,13 @@ void Int4QwenAttention::reshape_headfirst(Matrix3D<float> unshape, Matrix3D<floa
                 // shaped[i, j, k] = unshape[0, j, i * head_dim + k]
                 shaped(i, j, k) = unshape(0, j, i * this->head_dim + k);
             }
-    PROFILE_END("Int4QwenAttention::reshape_headfirst");
+    PROFILE_END("Int4QwenAttention:: reshape_headfirst");
 }
 
 // @abstract: reshape a matrix of shape (num_head, sqlen, head_dim) to (1, sqlen, embed_dim)
 void Int4QwenAttention::reshape_seqfirst(Matrix3D<float> shape1, Matrix3D<float> shape2, int sqlen)
 {
-    PROFILE_START("Int4QwenAttention::reshape_seqfirst");
+    PROFILE_START("Int4QwenAttention:: reshape_seqfirst");
     assert(shape2.m_dim_x == 1);  // bsz == 1
     assert(shape2.m_dim_y == sqlen);
     assert(shape2.m_dim_z == this->num_head * this->head_dim);
@@ -76,7 +76,7 @@ void Int4QwenAttention::reshape_seqfirst(Matrix3D<float> shape1, Matrix3D<float>
                shape2(0, j, i * this->head_dim + k) = shape1(i, j, k);
 
             }
-    PROFILE_END("Int4QwenAttention::reshape_seqfirst");
+    PROFILE_END("Int4QwenAttention:: reshape_seqfirst");
 }
 
 // TODO: memory waste check. Add static before void is wrong?
@@ -160,6 +160,7 @@ struct Int4QwenAttention_output Int4QwenAttention::forward(const struct Int4Qwen
     // Stage 1: Preparation of Q,K,V
     // ---------------------------------------------------------------
     // Q for current input
+    PROFILE_START(profile_name + ":: generate KQV");
     Matrix3D<float> query_states_unshape(query_states_unshape_arr, bs, sqlen, embed_dim);
     this->q_proj.forward(input.hidden_state, query_states_unshape);
         // (1, sqlen, embed_dim) -> (num_head, sqlen, head_dim)
@@ -179,12 +180,15 @@ struct Int4QwenAttention_output Int4QwenAttention::forward(const struct Int4Qwen
         // (1, sqlen, embed_dim) -> (num_head, sqlen, head_dim)
     Matrix3D<float> value_states(value_states_arr, this->num_head, sqlen, this->head_dim);
     this->reshape_headfirst(value_states_unshape, value_states, sqlen);
+    PROFILE_END(profile_name + ":: generate KQV");
     
     
     // Add RoPE embedding TODO: read the code
+    PROFILE_START(profile_name + ":: apply rope");
     int start_idx = 0;
     if (input.has_past_key_value) start_idx = input.past_key.m_dim_y;
     this->rope_embed.forward(query_states, key_states, start_idx, sqlen);
+    PROFILE_END(profile_name + ":: apply rope");
     
     /*
     TODO: need improvement
@@ -193,7 +197,7 @@ struct Int4QwenAttention_output Int4QwenAttention::forward(const struct Int4Qwen
         current KV shape: (num_head, sql, head_dim)
         final KV shape: (num_head, past_key_len + sql, head_dim) 
     */
-    PROFILE_START(profile_name + "::cat_past_keys_values");
+    PROFILE_START(profile_name + ":: refresh kv cache");
     // Prepare the buffer for KV Cache to update
     float *new_value_arr_cache, *new_key_arr_cache;
     // TODO: try conditional move
@@ -249,12 +253,13 @@ struct Int4QwenAttention_output Int4QwenAttention::forward(const struct Int4Qwen
 
     Matrix3D<float> final_value_states(all_value_state_arr, this->num_head, final_sqlen, this->head_dim);
     Matrix3D<float> final_key_states(all_key_state_arr, this->num_head, final_sqlen, this->head_dim);
-    PROFILE_END(profile_name + "::cat_past_keys_values");
+    PROFILE_END(profile_name + ":: refresh kv cache");
 
     // ---------------------------------------------------------------
     // Stage 2: Attention Computation
     // ---------------------------------------------------------------
     // step1: get attention weight
+    PROFILE_START(profile_name + ":: self_attention");
     Matrix3D<float>  attn_weights(attn_weights_arr, this->num_head, sqlen, final_sqlen); // shape: (sqlen, final_sqlen)
     // (num_head, sqlen, head_dim) x (num_head, final_sqlen, head_dim) -> (num_head, sqlen, final_sqlen)
     this->qk_bmm.forward(query_states, final_key_states, attn_weights);
@@ -282,6 +287,7 @@ struct Int4QwenAttention_output Int4QwenAttention::forward(const struct Int4Qwen
     // step6: output projection
     Matrix3D<float> attn_output_fp(attn_output_fp_arr, bs, sqlen, this->embed_dim);
     this->out_proj.forward(attn_reshape, attn_output_fp);
+    PROFILE_END(profile_name + ":: self_attention");
 
     // --------------------------------------------------------------
     // Debug
