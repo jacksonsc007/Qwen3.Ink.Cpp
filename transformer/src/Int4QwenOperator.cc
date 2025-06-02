@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <iomanip>
 
+#include "common.h"
 #include "utils.h"
 #include "Int4QwenOperator.h"
 #include <cassert>
@@ -59,9 +60,10 @@ void Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &a, Matrix3D<floa
     const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
 
-    char buffer[60];
-    std::sprintf(buffer, "[%s: %d x %d x %d]", profile_name.c_str(), m, n, k);
-    std::string formated_profile_name = buffer;
+    // char buffer[100];
+    // std::sprintf(buffer, "[%s: %d x %d x %d]", profile_name.c_str(), m, n, k);
+    // std::string formated_profile_name = buffer;
+    std::string formated_profile_name = profile_name;
 
     PROFILE_START_FLOPS(formated_profile_name, ops);
 
@@ -118,9 +120,10 @@ void Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &a, Matrix3D<floa
     // add bias TODO: simd
     if (has_bias)
     {
-        char buffer[60];
-        std::sprintf(buffer, "[%s bias_add: %d x %d]", profile_name.c_str(), m, n);
-        std::string formated_profile_name = buffer;
+        // char buffer[100];
+        // std::sprintf(buffer, "[%s bias_add: %d x %d]", profile_name.c_str(), m, n);
+        // std::string formated_profile_name = buffer;
+        std::string formated_profile_name = profile_name;
         Matrix3D<float> bias = this->bias; // (1, n, 1)
         assert (bias.m_dim_y == b.m_dim_y);
         PROFILE_START(formated_profile_name);

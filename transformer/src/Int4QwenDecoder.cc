@@ -1,5 +1,6 @@
 #include "Int4QwenDecoder.h"
 #include "utils.h"
+#include <memory>
 #include <sstream>
 
 Matrix3D<float> Int4QwenModel::prepare_decoder_attention_mask(int length, int past_length)
@@ -59,6 +60,7 @@ Int4QwenModel_output Int4QwenModel::forward(const struct Int4QwenModel_input &in
     // 1st stage: transform input tokens into embeddings
     // -----------------------------
     float inputs_embeds_buf[sqlen * this->embed_dim];
+    // std::unique_ptr<float []>  inputs_embeds_buf = std::make_unique<float []>(sqlen * this->embed_dim);
     Matrix3D<float> inputs_embeds(inputs_embeds_buf, 1, sqlen, this->embed_dim);
     this->wte.forward(input.input_ids, inputs_embeds);
     if (input.has_past_keys_values)
@@ -66,8 +68,8 @@ Int4QwenModel_output Int4QwenModel::forward(const struct Int4QwenModel_input &in
         past_key_values_length = input.past_keys[0].m_dim_y;
     }
     
-    std::string save_path = "/root/workspace/tinyml/TinyChatEngine/llm/INT4/qwen-7b-chat/transformer/activation/input_embeds.bin";
-    write_array_to_file(save_path.c_str(), inputs_embeds.m_data, inputs_embeds.length());
+    // std::string save_path = "/root/workspace/tinyml/TinyChatEngine/llm/INT4/qwen-7b-chat/transformer/activation/input_embeds.bin";
+    // write_array_to_file(save_path.c_str(), inputs_embeds.m_data, inputs_embeds.length());
 
 
     // -----------------------------
@@ -106,13 +108,13 @@ Int4QwenModel_output Int4QwenModel::forward(const struct Int4QwenModel_input &in
         // =================
         // Debug
         // =================
-        std::ostringstream oss;
-        std::string save_path;
-        // input
-        oss << "/root/workspace/tinyml/TinyChatEngine/llm/INT4/qwen-7b-chat/transformer/activation/output_layer" <<
-            i << ".bin";
-        save_path = oss.str();
-        write_array_to_file(save_path.c_str(), hidden_states.m_data, hidden_states.length());
+        // std::ostringstream oss;
+        // std::string save_path;
+        // // input
+        // oss << "/root/workspace/tinyml/TinyChatEngine/llm/INT4/qwen-7b-chat/transformer/activation/output_layer" <<
+        //     i << ".bin";
+        // save_path = oss.str();
+        // write_array_to_file(save_path.c_str(), hidden_states.m_data, hidden_states.length());
     }
     // -----------------------------
     // 4th stage: output layernorm

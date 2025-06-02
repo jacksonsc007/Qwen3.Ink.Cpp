@@ -74,13 +74,18 @@ int main(int argc, char** argv)
     
     printf("\e[31m[INFO]\e[m Loading Model ...\n");
     std::string model_path = model_path_config[target_model];
-    qwen_params generation_config;
+    qwen_params generation_config {
+        -1,
+        1,
+        2048
+    };
+
     if (data_format_config[target_data_type] == INT4)
     {
         int bs = 1;
         int num_heads = 32;
         int num_layers = 32;
-        int max_sqlen = 512;
+        int max_sqlen = 2048;
         int embed_dim = 4096;
         int hidden_dim = 11008;
         int vocsize = 151936;

@@ -15,7 +15,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
     std::vector<int> embd; 
     std::vector<int> generate_ids; // return value
 
-    const int max_token_length = 2048;
+    const int max_token_length = 512;
     const int vocab_size = generation_config.n_vocab;
     std::vector<int> input_ids(max_token_length);
     // ===========================
@@ -29,6 +29,15 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
     printf("\e[32m[INFO]\e[m Tokenizer built successfully\n");
     #endif
     input_ids = tokenizer.encode(text, max_token_length);
+    std::string restored_text = tokenizer.decode(input_ids);
+    // Make sure the tokenizer works as expected.
+    if (text != restored_text)
+    {
+        printf("input text: \n%s\n", text.c_str());
+        printf("converted text: \n%s\n", restored_text.c_str());
+        std::abort();
+    }
+    
     
     if (interactive) std::cout << "ASSISTANT: " << std::endl;
 
@@ -36,7 +45,7 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
     bool previous_two_hash = false;
     std::vector<Matrix3D<float>> past_keys, past_values; // Hold KV Cache
     int n_remain = generation_config.n_predict;
-    int stop_generation_tolerance = 2;
+    int stop_generation_tolerance = 1;
     while (n_remain != 0 && stop_generation_tolerance)
     {
         std::vector<float> logits(vocab_size);
@@ -92,20 +101,20 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
             max_context_length
         );
         // apply repetition penalty
-        sample_repetition_penalty(
-            &candidiate_p,
-            last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
-            last_n_repeat,
-            generation_config.repeat_penalty
-        );
+        // sample_repetition_penalty(
+        //     &candidiate_p,
+        //     last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
+        //     last_n_repeat,
+        //     generation_config.repeat_penalty
+        // );
         // apply frequency and presence penalty
-        sample_frequency_and_presence_penalties(
-            &candidiate_p,
-            last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
-            last_n_repeat,
-            generation_config.frequency_penalty,
-            generation_config.presence_penalty
-        );
+        // sample_frequency_and_presence_penalties(
+        //     &candidiate_p,
+        //     last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
+        //     last_n_repeat,
+        //     generation_config.frequency_penalty,
+        //     generation_config.presence_penalty
+        // );
     
         // step 2: sampling
         const float temperature = generation_config.temp;
@@ -125,11 +134,11 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
             else
             {
                 // apply temperature sampling TODO: review those sample strategy
-                sample_top_k(&candidiate_p, generation_config.top_k, 1);
-                sample_tail_free(&candidiate_p, generation_config.tfs_z, 1);
-                sample_typical(&candidiate_p, generation_config.typical_p, 1);
-                sample_top_p(&candidiate_p, generation_config.top_p, 1);
-                sample_temperature(&candidiate_p, temperature);
+                // sample_top_k(&candidiate_p, generation_config.top_k, 1);
+                // sample_tail_free(&candidiate_p, generation_config.tfs_z, 1);
+                // sample_typical(&candidiate_p, generation_config.typical_p, 1);
+                // sample_top_p(&candidiate_p, generation_config.top_p, 1);
+                // sample_temperature(&candidiate_p, temperature);
                 next_token_id = sample_token(&candidiate_p); // random sample as per probability
             }
         }
@@ -148,9 +157,6 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
             printf("\e[31m[INFO]\e[m padding token detected\n");
             continue; // Do not update the context when meeting EOS            
         }
-        stop_generation_tolerance = 2;
-
-
 
         // refresh the context TODO: another implementation, expanding the context vector progressively
         last_n_tokens.erase(last_n_tokens.begin());
@@ -166,6 +172,10 @@ std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
         --n_remain;
 
         // printf("\e[31m[INFO]\e[m Context Length: (%zu / %d)\n", last_n_tokens.size(), max_context_length);
+    }
+    if (n_remain == 0)
+    {
+        printf("\n\e[31m[INFO]\e[m Close Chat due to limited token budget, please consider increase the generation config.\n");
     }
     if (interactive) std::cout << std::endl;
     Profiler::getInstance().report_internal();
