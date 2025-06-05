@@ -1,7 +1,9 @@
 #include "operators.h"
 #include "utils.h"
 
-void load_BMM_F32T(BMM_F32T &op, std::string prefix) { read_to_array((prefix + "/alpha.bin").c_str(), &op.alpha, 1); }
+void load_BMM_F32T(BMM_F32T &op, std::string prefix) { 
+    read_to_array((prefix + "/alpha.bin").c_str(), &op.alpha, 1); 
+}
 
 BMM_F32T::BMM_F32T(float _alpha) { this->alpha = _alpha; }
 

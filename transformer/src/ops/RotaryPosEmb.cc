@@ -6,8 +6,9 @@ float q_buf[4096], k_buf[4096];
 void RotaryPosEmb::forward(Matrix3D<float> &query, Matrix3D<float> &key,
                            int start_idx, int len) {
   PROFILE_START(profile_name);
-  int num_heads = query.m_dim_x;
-  int head_embed = cos.m_dim_z;
+  int num_q_head = query.m_dim_x;
+  int num_k_head = key.m_dim_x;
+  int head_dim = cos.m_dim_z;
   int max_sqlen = cos.m_dim_y;
 
   assert(query.m_dim_z == cos.m_dim_z);
@@ -24,8 +25,9 @@ void RotaryPosEmb::forward(Matrix3D<float> &query, Matrix3D<float> &key,
   // x2 = x[..., x.shape[-1] // 2 :]
   // rotate_half: torch.cat((-x2, x1), dim=-1)
 
-  int half = head_embed / 2;
-  for (int b = 0; b < num_heads; b++) 
+  int half = head_dim / 2;
+  // q
+  for (int b = 0; b < num_q_head; b++) 
   {
     for (int i = 0; i < len; i++) 
     {
@@ -33,21 +35,41 @@ void RotaryPosEmb::forward(Matrix3D<float> &query, Matrix3D<float> &key,
       for (int j = 0; j < half; j++) 
       {
         q_buf[j] = -1 * query(b, i, j + half);
-        k_buf[j] = -1 * key(b, i, j + half);
       }
       // second half
-      for (int j = half; j < head_embed; j++) 
+      for (int j = half; j < head_dim; j++) 
       {
         q_buf[j] = query(b, i, j - half);
-        k_buf[j] = key(b, i, j - half);
       }
 
-      for (int j = 0; j < head_embed; j++) 
+      for (int j = 0; j < head_dim; j++) 
       {
         query(b, i, j) = (
           (query(b, i, j) * cos(0, i + start_idx, j)) +
           (q_buf[j] * sin(0, i + start_idx, j))
         );
+      }
+    }
+  }
+
+  // k
+  for (int b = 0; b < num_k_head; b++) 
+  {
+    for (int i = 0; i < len; i++) 
+    {
+      // first half
+      for (int j = 0; j < half; j++) 
+      {
+        k_buf[j] = -1 * key(b, i, j + half);
+      }
+      // second half
+      for (int j = half; j < head_dim; j++) 
+      {
+        k_buf[j] = key(b, i, j - half);
+      }
+
+      for (int j = 0; j < head_dim; j++) 
+      {
         key(b, i, j) = ((key(b, i, j) * cos(0, i + start_idx, j)) +
                         (k_buf[j] * sin(0, i + start_idx, j)));
       }

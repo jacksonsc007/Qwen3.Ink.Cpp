@@ -1,6 +1,5 @@
 #include "Generate.h"
 
-#include "LLaMATokenizer.h"
 #include "common.h"
 #include "utils.h"
 

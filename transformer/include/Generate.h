@@ -8,10 +8,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "Fp32llamaForCausalLM.h"
-#include "Int4llamaForCausalLM.h"
-#include "OPTForCausalLM.h"
-#include "OPTTokenizer.h"
 #include "operators.h"
 #include "utils.h"
 
@@ -107,16 +103,9 @@ void sample_typical(OPT_token_data_array* candidates, float p, size_t min_keep);
 
 void sample_top_p(OPT_token_data_array* candidates, float p, size_t min_keep);
 
-std::vector<int> OPTGenerate(OPTForCausalLM model, std::vector<int> input_ids,
-                             const struct opt_params generation_config, Encoder* encoder = NULL,
-                             bool interactive = false);
-
-enum { OPT, LLaMA_FP32, LLaMA_INT4 };
-std::vector<int> LLaMAGenerate(void* model, int model_type, std::string text, const struct opt_params generation_config,
-                               std::string voc_path, bool interactive);
 
 std::vector<int> QwenGenerate(void *model_ptr, std::string text,
-    const struct qwen_params generation_config, std::string tiktoken_path, bool interactive, qwen_config config);
+    const struct qwen_params generation_config, std::string tiktoken_path, bool interactive, qwen3_config config);
 
 std::vector<int> QwenGenerateInt4(void *model_ptr, std::string text,
-    const struct qwen_params generation_config, std::string tiktoken_path, bool interactive, qwen_config config);
+    const struct qwen_params generation_config, std::string tiktoken_path, bool interactive, qwen3_config config);

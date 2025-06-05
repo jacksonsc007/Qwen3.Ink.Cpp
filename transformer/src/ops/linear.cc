@@ -26,7 +26,7 @@ void linear(Matrix3D<T> &a, Matrix3D<T> &b, Matrix3D<T> &c) {
     }
 }
 
-void Linear_FP::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
+void LinearFp32::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
     Matrix3D<float> b = this->weight;
     const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;

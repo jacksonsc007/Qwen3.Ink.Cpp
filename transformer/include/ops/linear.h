@@ -1,13 +1,13 @@
 #include "common.h"
 #include "utils.h"
-class Linear_FP {
+class LinearFp32 {
    public:
-    Linear_FP(Matrix3D<float> weight_, std::string weight_path) : weight(weight_) {
+    LinearFp32(Matrix3D<float> weight_, std::string weight_path) : weight(weight_) {
         read_to_array((weight_path).c_str(), this->weight.m_data, this->weight.length());
     };
-    Linear_FP(Matrix3D<float> weight_) : weight(weight_) {
+    LinearFp32(Matrix3D<float> weight_) : weight(weight_) {
     };
-    Linear_FP(){};
+    LinearFp32(){};
     void forward(const Matrix3D<float> &x, Matrix3D<float> &output);
     Matrix3D<float> weight;
 

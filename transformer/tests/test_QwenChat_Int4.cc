@@ -92,7 +92,7 @@ int main(int argc, char** argv)
         int padding_idx = 1;
         int qk;  // group size
         assert (bs == 1); // only support bs = 1
-        qwen_config config(bs, num_heads, num_layers, max_sqlen, embed_dim, hidden_dim, vocsize, padding_idx);
+        jlskf config(bs, num_heads, num_layers, max_sqlen, embed_dim, hidden_dim, vocsize, padding_idx);
         Int4QwenForCausalLM model = Int4QwenForCausalLM(model_path, config);
         printf("\e[32m[INFO]\e[m Model Loaded ... from %s\n", model_path.c_str());
         std::string tiktoken_path = "qwen-7b-chat/qwen.tiktoken";

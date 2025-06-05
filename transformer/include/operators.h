@@ -15,7 +15,6 @@
 #include "ops/Embedding.h"
 #include "ops/LayerNorm.h"
 #include "ops/LayerNormQ.h"
-#include "ops/LlamaRMSNorm.h"
 #include "ops/RotaryPosEmb.h"
 #include "ops/W8A8B8O8Linear.h"
 #include "ops/W8A8B8O8LinearReLU.h"

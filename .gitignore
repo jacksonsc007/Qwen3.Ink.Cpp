@@ -31,3 +31,7 @@ profile_*
 !profile_*.cc
 libtorch/
 build/
+INT4/
+models/
+model_weights/
+qwen-7b-chat/

@@ -12,22 +12,27 @@
 #include "common.h"
 #include <filesystem>
 
-// To be deprecated soon
 template <typename T>
-void read_to_array(const char* path, T* array, int size) {
-    std::ifstream infile(path, std::ios::binary | std::ios::in);
-    if (infile.fail()) {
-        std::cout << strerror(errno) << ": " << path << std::endl;
-        throw("Expected error...");
-    } else {
-        infile.read(reinterpret_cast<char*>(array), size * sizeof(T));
-        infile.close();
+void read_to_array(const char* path, T* array, size_t size) {
+    std::ifstream infile(path, std::ios::binary);
+    if (!infile) {
+        std::cerr << "Failed to open file: " << strerror(errno) << " - " << path << std::endl;
+        throw std::runtime_error("File open failed");
     }
+
+    infile.read(reinterpret_cast<char*>(array), size * sizeof(T));
+
+    if (!infile) {
+        std::cerr << "Error occurred while reading file: " << path << std::endl;
+        throw std::runtime_error("File read failed");
+    }
+
+    infile.close();
 }
 
 
 template <typename T>
-void write_array_to_file(const char* path, T* array, int size){
+void write_array_to_file(const char* path, T* array, size_t size){
 
     // get the directory path, if path does not exist, create
     std::filesystem::path file_path(path);
@@ -45,15 +50,19 @@ void write_array_to_file(const char* path, T* array, int size){
         }
     }
     
-    std::ofstream outfile(path, std::ios::binary | std::ios::out);
-    if (outfile.fail()){
-        std::cout << strerror(errno) << ": " << path << std::endl;
-        throw("Expected error...");
-    } else{
-        outfile.write(reinterpret_cast<char*>(array), size * sizeof(T));
-        outfile.close();
+    std::ofstream outfile(path, std::ios::binary);
+    if (!outfile) {
+        throw std::runtime_error("Failed to create file");
     }
+
+    outfile.write(reinterpret_cast<const char*>(array), size * sizeof(T));
+    if (!outfile) {
+        throw std::runtime_error("Failed to write to file");
+    }
+
+    outfile.close();
 }
+
 
 struct max_error_info {
     int idx;
@@ -266,14 +275,14 @@ void deallocate_memory(void* ptr) { free(ptr); }
 
 // Explicitly instantiate the generic template function for other types (if needed)
 template bool check_two_equal<float>(float* array, float* array2, int size);
-template void read_to_array<float>(const char* path, float* array, int size);
-template void read_to_array<int32_t>(const char* path, int32_t* array, int size);
-template void read_to_array<int8_t>(const char* path, int8_t* array, int size);
-template void read_to_array<uint8_t>(const char* path, uint8_t* array, int size);
+template void read_to_array<float>(const char* path, float* array, size_t size);
+template void read_to_array<int32_t>(const char* path, int32_t* array, size_t size);
+template void read_to_array<int8_t>(const char* path, int8_t* array, size_t size);
+template void read_to_array<uint8_t>(const char* path, uint8_t* array, size_t size);
 template void allocate_aligned_memory(float*& ptr, size_t size);
 template void allocate_aligned_memory(int*& ptr, size_t size);
 template void allocate_aligned_memory(int8_t*& ptr, size_t size);
 template void allocate_aligned_memory(uint8_t*& ptr, size_t size);
 template void allocate_aligned_memory(pack_q4_tensor*& ptr, size_t size);
 
-template void write_array_to_file<float>(const char* path, float* array, int size);
+template void write_array_to_file<float>(const char* path, float* array, size_t size);
