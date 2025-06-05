@@ -1,5 +1,5 @@
 #include "Generate.h"
-#include "Fp32QwenForCausalLM.h"
+#include "QwenForCausalLM.h"
 #include "model.h"
 
 // std::map<std::string, int> model_config = 
@@ -39,23 +39,26 @@ struct model_meta MODEL_REPOSITORY[KernelCount] = {
 
 int main(int argc, char** argv)
 {
-    std::string target_model = "qwen3-8b";
-    std::string target_data_type = "FP32";
-    LinearKernelType kernel_type = Afp32Wfp32;
+    std::string target_model = "qwen3-8b-A80W40";
+    LinearKernelType kernel_type = A80W40;
 
     
     printf("\e[31m[INFO]\e[m Loading Model ...\n");
     std::string model_path = MODEL_REPOSITORY[kernel_type].model_path;
     int data_format = MODEL_REPOSITORY[kernel_type].data_type;
-    qwen_params generation_config;
-    if (kernel_type == Afp32Wfp32)
+    qwen_params generation_config {
+        -1,
+        1,
+        128
+    };
+    if (kernel_type == A80W40)
     {
         int bs = 1;
         int max_sqlen = 4096;
         int qk;  // group size
         assert (bs == 1); // only support bs = 1
         qwen3_config config(bs,max_sqlen);
-        Fp32Qwen3ForCausalLM model = Fp32Qwen3ForCausalLM(model_path, config);
+        Qwen3ForCausalLM model = Qwen3ForCausalLM(model_path, config);
     printf("\e[32m[INFO]\e[m Model Loaded ...\n");
         std::string tiktoken_path = "qwen-7b-chat/qwen.tiktoken";
         

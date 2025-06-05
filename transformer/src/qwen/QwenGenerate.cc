@@ -2,7 +2,7 @@
 #include "utils.h"
 #include "Generate.h"
 #include "QwenTokenizer.h"
-#include "Fp32QwenForCausalLM.h"
+#include "QwenForCausalLM.h"
 
 std::vector<int> QwenGenerate(void *model_ptr, std::string text,
     const struct qwen_params generation_config, std::string tiktoken_path, bool interactive, qwen3_config config)
@@ -46,9 +46,9 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
     // ===========================
     // Stage2: Model evaluation
     // ===========================
-        Fp32Qwen3ForCausalLM *model = static_cast<Fp32Qwen3ForCausalLM *>(model_ptr);
-        Fp32Qwen3ForCausalLM_Input model_input;
-        Fp32Qwen3ForCausalLM_Output model_output;
+        Qwen3ForCausalLM *model = static_cast<Qwen3ForCausalLM *>(model_ptr);
+        Qwen3ForCausalLM_Input model_input;
+        Qwen3ForCausalLM_Output model_output;
         
         if (has_past_kv)
         {
@@ -72,13 +72,13 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
     // ===========================
     // Stage3: Sampling strategy
     // ===========================
-        std::vector<OPT_token_data> candidates; 
+        std::vector<token_data> candidates; 
         candidates.reserve(vocab_size);
         for (int token_id = 0; token_id < vocab_size; token_id++)
         {
-            candidates.emplace_back(OPT_token_data{token_id, logits[token_id], 0.0f});
+            candidates.emplace_back(token_data{token_id, logits[token_id], 0.0f});
         }
-        OPT_token_data_array candidiate_p = {candidates.data(), candidates.size(), false};
+        token_data_array candidiate_p = {candidates.data(), candidates.size(), false};
         // step 1: Apply sampling preference: use new tokens or repeat tokens?
         // Please refer to https://docs.vllm.ai/en/stable/dev/sampling_params.html for more details
         const int32_t repeat_last_n = generation_config.repeat_last_n < 0 ? max_context_length : generation_config.repeat_last_n;

@@ -3,7 +3,7 @@
 #include "common.h"
 #include "utils.h"
 
-void sample_repetition_penalty(OPT_token_data_array* candidates, const int* last_tokens, size_t last_tokens_size,
+void sample_repetition_penalty(token_data_array* candidates, const int* last_tokens, size_t last_tokens_size,
                                float penalty) {
     if (last_tokens_size == 0 || penalty == 1.0f) {
         return;
@@ -25,7 +25,7 @@ void sample_repetition_penalty(OPT_token_data_array* candidates, const int* last
     candidates->sorted = false;
 }
 
-void sample_frequency_and_presence_penalties(OPT_token_data_array* candidates, const int* last_tokens_p,
+void sample_frequency_and_presence_penalties(token_data_array* candidates, const int* last_tokens_p,
                                              size_t last_tokens_size, float alpha_frequency, float alpha_presence) {
     if (last_tokens_size == 0 || (alpha_frequency == 0.0f && alpha_presence == 0.0f)) {
         return;
@@ -51,17 +51,17 @@ void sample_frequency_and_presence_penalties(OPT_token_data_array* candidates, c
     candidates->sorted = false;
 }
 
-int sample_token_greedy(OPT_token_data_array* candidates) {
+int sample_token_greedy(token_data_array* candidates) {
     // Find max element
     auto max_iter =
         std::max_element(candidates->data, candidates->data + candidates->size,
-                         [](const OPT_token_data& a, const OPT_token_data& b) { return a.logit < b.logit; });
+                         [](const token_data& a, const token_data& b) { return a.logit < b.logit; });
 
     int result = max_iter->id;
     return result;
 }
 
-void sample_temperature(OPT_token_data_array* candidates_p, float temp) {
+void sample_temperature(token_data_array* candidates_p, float temp) {
     for (size_t i = 0; i < candidates_p->size; ++i) {
         candidates_p->data[i].logit /= temp;
     }
@@ -70,13 +70,13 @@ void sample_temperature(OPT_token_data_array* candidates_p, float temp) {
 //
 // sampling
 //
-void sample_softmax(OPT_token_data_array* candidates) {
+void sample_softmax(token_data_array* candidates) {
     assert(candidates->size > 0);
 
     // Sort the logits in descending order
     if (!candidates->sorted) {
         std::sort(candidates->data, candidates->data + candidates->size,
-                  [](const OPT_token_data& a, const OPT_token_data& b) { return a.logit > b.logit; });
+                  [](const token_data& a, const token_data& b) { return a.logit > b.logit; });
         candidates->sorted = true;
     }
 
@@ -92,7 +92,7 @@ void sample_softmax(OPT_token_data_array* candidates) {
     }
 }
 
-int sample_token(OPT_token_data_array* candidates) {
+int sample_token(token_data_array* candidates) {
     sample_softmax(candidates);
 
     std::vector<float> probs;
@@ -102,20 +102,20 @@ int sample_token(OPT_token_data_array* candidates) {
     }
 
     std::discrete_distribution<> dist(probs.begin(), probs.end());
-    auto& rng = OPT_rng;
+    auto& rng = random_generator;
     int idx = dist(rng);
 
     int result = candidates->data[idx].id;
     return result;
 }
 
-void sample_top_k(OPT_token_data_array* candidates, int k, size_t min_keep) {
+void sample_top_k(token_data_array* candidates, int k, size_t min_keep) {
     k = std::max(k, (int)min_keep);
     k = std::min(k, (int)candidates->size);
 
     // Sort scores in descending order
     if (!candidates->sorted) {
-        auto comp = [](const OPT_token_data& a, const OPT_token_data& b) { return a.logit > b.logit; };
+        auto comp = [](const token_data& a, const token_data& b) { return a.logit > b.logit; };
         if (k == (int)candidates->size) {
             std::sort(candidates->data, candidates->data + candidates->size, comp);
         } else {
@@ -127,7 +127,7 @@ void sample_top_k(OPT_token_data_array* candidates, int k, size_t min_keep) {
     candidates->size = k;
 }
 
-int sample_token_mirostat(const int n_vocab, OPT_token_data_array* candidates, float tau, float eta, int m, float* mu) {
+int sample_token_mirostat(const int n_vocab, token_data_array* candidates, float tau, float eta, int m, float* mu) {
     auto N = float(n_vocab);
 
     sample_softmax(candidates);
@@ -155,7 +155,7 @@ int sample_token_mirostat(const int n_vocab, OPT_token_data_array* candidates, f
     // Compute error as the difference between observed surprise and target surprise value
     size_t X_idx = std::distance(candidates->data,
                                  std::find_if(candidates->data, candidates->data + candidates->size,
-                                              [&](const OPT_token_data& candidate) { return candidate.id == X; }));
+                                              [&](const token_data& candidate) { return candidate.id == X; }));
     float observed_surprise = -log2f(candidates->data[X_idx].p);
     float e = observed_surprise - tau;
 
@@ -165,13 +165,13 @@ int sample_token_mirostat(const int n_vocab, OPT_token_data_array* candidates, f
     return X;
 }
 
-int sample_token_mirostat_v2(OPT_token_data_array* candidates, float tau, float eta, float* mu) {
+int sample_token_mirostat_v2(token_data_array* candidates, float tau, float eta, float* mu) {
     sample_softmax(candidates);
 
     // Truncate the words with surprise values greater than mu
     candidates->size = std::distance(
         candidates->data, std::find_if(candidates->data, candidates->data + candidates->size,
-                                       [&](const OPT_token_data& candidate) { return -log2f(candidate.p) > *mu; }));
+                                       [&](const token_data& candidate) { return -log2f(candidate.p) > *mu; }));
 
     // Normalize the probabilities of the remaining words
     sample_softmax(candidates);
@@ -182,7 +182,7 @@ int sample_token_mirostat_v2(OPT_token_data_array* candidates, float tau, float 
     // Compute error as the difference between observed surprise and target surprise value
     size_t X_idx = std::distance(candidates->data,
                                  std::find_if(candidates->data, candidates->data + candidates->size,
-                                              [&](const OPT_token_data& candidate) { return candidate.id == X; }));
+                                              [&](const token_data& candidate) { return candidate.id == X; }));
     float observed_surprise = -log2f(candidates->data[X_idx].p);
     float e = observed_surprise - tau;
 
@@ -192,7 +192,7 @@ int sample_token_mirostat_v2(OPT_token_data_array* candidates, float tau, float 
     return X;
 }
 
-void sample_tail_free(OPT_token_data_array* candidates, float z, size_t min_keep) {
+void sample_tail_free(token_data_array* candidates, float z, size_t min_keep) {
     if (z >= 1.0f || candidates->size <= 2) {
         return;
     }
@@ -237,7 +237,7 @@ void sample_tail_free(OPT_token_data_array* candidates, float z, size_t min_keep
     candidates->size = last_idx;
 }
 
-void sample_typical(OPT_token_data_array* candidates, float p, size_t min_keep) {
+void sample_typical(token_data_array* candidates, float p, size_t min_keep) {
     // Reference implementation:
     // https://github.com/huggingface/transformers/compare/main...cimeister:typical-sampling:typical-pr
     if (p >= 1.0f) {
@@ -282,7 +282,7 @@ void sample_typical(OPT_token_data_array* candidates, float p, size_t min_keep) 
     }
 
     // Resize the output vector to keep only the locally typical tokens
-    std::vector<OPT_token_data> new_candidates;
+    std::vector<token_data> new_candidates;
     for (size_t i = 0; i < last_idx; ++i) {
         size_t idx = indices[i];
         new_candidates.push_back(candidates->data[idx]);
@@ -293,7 +293,7 @@ void sample_typical(OPT_token_data_array* candidates, float p, size_t min_keep) 
     candidates->size = new_candidates.size();
 }
 
-void sample_top_p(OPT_token_data_array* candidates, float p, size_t min_keep) {
+void sample_top_p(token_data_array* candidates, float p, size_t min_keep) {
     if (p >= 1.0f) {
         return;
     }

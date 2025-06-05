@@ -1,5 +1,7 @@
+#include "QwenOperator.h"
 #include "common.h"
-#include "Fp32QwenDecoderLayer.h"
+#include "utils.h"
+#include "QwenDecoderLayer.h"
 
 // TODO: why static? Could we reuse the same space to hold the following variables?
 static float* hidden_states_arr;
@@ -31,7 +33,7 @@ void add(Matrix3D<T> a, Matrix3D<T> b, Matrix3D<T> c) {
     PROFILE_END("Fp32QwenDecoderLayer::add");
 }
 
-Fp32Qwen3DecoderLayer::Fp32Qwen3DecoderLayer(std::string param_path, const struct qwen3_config config, int layer_idx)
+Qwen3DecoderLayer::Qwen3DecoderLayer(std::string param_path, const struct qwen3_config config, int layer_idx)
 {
     this->layer_idx = layer_idx;
     max_sqlen = config.max_sqlen;
@@ -46,7 +48,7 @@ Fp32Qwen3DecoderLayer::Fp32Qwen3DecoderLayer(std::string param_path, const struc
         allocate_aligned_memory(down_proj_arr, max_sqlen * hidden_dim * sizeof(float));
         allocate_aligned_memory(up_proj_arr, max_sqlen * hidden_dim * sizeof(float));
         // intialize attention layer
-        Fp32Qwen3Attention::initialize_memory(config);
+        Qwen3Attention::initialize_memory(config);
     }
     
     // input layernorm
@@ -70,7 +72,7 @@ Fp32Qwen3DecoderLayer::Fp32Qwen3DecoderLayer(std::string param_path, const struc
     this->post_attention_layernorm = Qwen3RMSNorm(ln_2_weight_mat);
 
     // attention module
-    this->attn = Fp32Qwen3Attention(param_path + "/self_attn", config);
+    this->attn = Qwen3Attention(param_path + "/self_attn", config);
 
     // mlp module
     float *gate_proj_weight, *down_proj_weight, *up_proj_weight;
@@ -80,24 +82,25 @@ Fp32Qwen3DecoderLayer::Fp32Qwen3DecoderLayer(std::string param_path, const struc
     IF_DEBUG(
         printf("\e[31m[INFO]\e[m Loading mlp for Qwen Block %d...\n", layer_idx);
     );
-    this->gate_proj = LinearFp32(
-        Matrix3D<float>(gate_proj_weight, 1, mlp_proj_dim, hidden_dim),
-        (param_path + "/mlp/gate_proj/weight.bin")
+    this->gate_proj = Qwen_Linear_with_bias_Int4(
+        (param_path + "/mlp/gate_proj/"),
+        1, mlp_proj_dim, hidden_dim
     );
-    this->up_proj   = LinearFp32(
-        Matrix3D<float>(up_proj_weight, 1, mlp_proj_dim, hidden_dim),
-        (param_path + "/mlp/up_proj/weight.bin")
+    this->up_proj   = Qwen_Linear_with_bias_Int4(
+        (param_path + "/mlp/up_proj/"),
+        1, mlp_proj_dim, hidden_dim
     );
-    this->down_proj = LinearFp32(
-        Matrix3D<float>(down_proj_weight, 1, hidden_dim, mlp_proj_dim),
-        (param_path + "/mlp/down_proj/weight.bin")
+    this->down_proj = Qwen_Linear_with_bias_Int4(
+        (param_path + "/mlp/down_proj/"),
+        1, hidden_dim, mlp_proj_dim
     );
 }
 
 
-Fp32Qwen3DecoderLayer_Output Fp32Qwen3DecoderLayer::forward(const Fp32Qwen3DecoderLayer_Input &input)
+Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Input &input)
 {
     PROFILE_START(profile_name);
+    PROFILE_START(profile_name + "::input layernorm");
     // -----------------------------
     // 1st stage: layernorm
     // -----------------------------
@@ -106,29 +109,35 @@ Fp32Qwen3DecoderLayer_Output Fp32Qwen3DecoderLayer::forward(const Fp32Qwen3Decod
     int embed_dim = input.hidden_states_arr.m_dim_z;
     Matrix3D<float> hidden_states(hidden_states_arr, bs, sq_len, embed_dim);
     this->input_layernorm.forward(input.hidden_states_arr, hidden_states);
+    PROFILE_END(profile_name + "::input layernorm");
 
     // -----------------------------
     // 2nd stage: attention + residual addition
     // -----------------------------
-    Fp32Qwen3Attention_Input attn_param(
+    PROFILE_START(profile_name + "::self-attention");
+    Qwen3Attention_Input attn_param(
         hidden_states, input.attention_mask, input.past_key,
         input.past_value, input.has_past_key_value, this->layer_idx
     );
-    Fp32Qwen3Attention_Output attn_output = this->attn.forward(attn_param);
+    Qwen3Attention_Output attn_output = this->attn.forward(attn_param);
     Matrix3D<float> residual_out(hidden_states_res_arr, bs, sq_len, embed_dim);
     add(input.hidden_states_arr, attn_output.attn_output, residual_out);
+    PROFILE_END(profile_name + "::self-attention");
 
     // -----------------------------
     // 3rd stage: post-attention layernorm
     // -----------------------------
+    PROFILE_START(profile_name + "::post attention layer norm");
     Matrix3D<float> post_attn_layernorm_out(post_attn_layernorm_out_arr, bs, sq_len, embed_dim);
     this->post_attention_layernorm.forward(residual_out, post_attn_layernorm_out);
+    PROFILE_END(profile_name + "::post attention layer norm");
 
     // -----------------------------
     // 4th stage: MLP stage 
     // NOTE: This implementation differs from Qwen.cpp
     // -----------------------------
     // Gate proj: embed_dim -> hidden_dim
+    PROFILE_START(profile_name + "::mlp");
     Matrix3D<float> gate_proj_output(gate_proj_arr, bs, sq_len, mlp_proj_dim);
     this->gate_proj.forward(post_attn_layernorm_out, gate_proj_output);
     // up proj: embed_dim -> hidden_dim
@@ -140,7 +149,7 @@ Fp32Qwen3DecoderLayer_Output Fp32Qwen3DecoderLayer::forward(const Fp32Qwen3Decod
     Matrix3D<float> down_proj_output(down_proj_arr, bs, sq_len, hidden_dim);
     this->down_proj.forward(gate_proj_output, down_proj_output);
     add(residual_out, down_proj_output, residual_out);
-    
+    PROFILE_END(profile_name + "::mlp");
     IF_DEBUG_DECODER_LAYER(
         printf("\e[31m[INFO]\e[m decoder layer statistics: \n");
         post_attn_layernorm_out.statistics();
@@ -149,7 +158,7 @@ Fp32Qwen3DecoderLayer_Output Fp32Qwen3DecoderLayer::forward(const Fp32Qwen3Decod
         down_proj_output.statistics();
         residual_out.statistics();
     );
-    struct Fp32Qwen3DecoderLayer_Output output(residual_out, attn_output.attn_probs_reshaped,
+    struct Qwen3DecoderLayer_Output output(residual_out, attn_output.attn_probs_reshaped,
                                                attn_output.past_key_value);
     PROFILE_END(profile_name);
     return output;

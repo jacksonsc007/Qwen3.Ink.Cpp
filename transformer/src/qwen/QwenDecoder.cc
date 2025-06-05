@@ -1,10 +1,10 @@
-#include "Fp32QwenDecoder.h"
+#include "QwenDecoder.h"
 #include "common.h"
 #include "utils.h"
 #include <memory>
 #include <sstream>
 
-void Fp32Qwen3Model::prepare_decoder_attention_mask(int length, int past_length, Matrix3D<float>& attn_mask)
+void Qwen3Model::prepare_decoder_attention_mask(int length, int past_length, Matrix3D<float>& attn_mask)
 {
     int cur_sq_len = length - past_length;
     assert (cur_sq_len > 0);
@@ -21,7 +21,7 @@ void Fp32Qwen3Model::prepare_decoder_attention_mask(int length, int past_length,
         }
 } 
 
-Fp32Qwen3Model::Fp32Qwen3Model(std::string param_path, const struct qwen3_config config){
+Qwen3Model::Qwen3Model(std::string param_path, const struct qwen3_config config){
     // allocate_aligned_memory(attention_mask_buf, sizeof(float) * config.max_sqlen * config.max_sqlen);
     // allocate_aligned_memory(last_hidden_states_buf, sizeof(float) * config.max_sqlen * config.embed_dim);
     voc_size = config.vocsize;
@@ -68,12 +68,12 @@ Fp32Qwen3Model::Fp32Qwen3Model(std::string param_path, const struct qwen3_config
             printf("\e[31m[INFO]\e[m Loading Qwen Block %d...\n", layer_idx);
         );
         std::string path = param_path + "/layers/layer" + std::to_string(layer_idx);
-        Fp32Qwen3DecoderLayer layer = Fp32Qwen3DecoderLayer(path, config, layer_idx);
+        Qwen3DecoderLayer layer = Qwen3DecoderLayer(path, config, layer_idx);
         layers.push_back(layer);
     }
 }
 
-Fp32Qwen3Model_Output Fp32Qwen3Model::forward(const struct Fp32Qwen3Model_Input &input) {
+Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     PROFILE_START(this->profile_name);
     /*
     cur_sqlen should be 1 at autoregressive generation stage;
@@ -85,8 +85,10 @@ Fp32Qwen3Model_Output Fp32Qwen3Model::forward(const struct Fp32Qwen3Model_Input 
     // ---
     // 1st stage: transform input tokens into embeddings
     // ---
+    PROFILE_START(profile_name + "::embedding");
     Matrix3D<float> token_embedding(hidden_embed_ptr.get(), bs, cur_sqlen, hidden_dim);
     wte.forward(input.input_ids, token_embedding);
+    PROFILE_END(profile_name + "::embedding");
     if (input.has_past_keys_values)
     {
         past_sqlen = input.past_keys[0].m_dim_y;
@@ -103,13 +105,16 @@ Fp32Qwen3Model_Output Fp32Qwen3Model::forward(const struct Fp32Qwen3Model_Input 
     // ---
     // 2nd stage: prepare causal attention mask
     // ---
+    PROFILE_START(profile_name + "::attention mask generation");
     int entire_sq_len = cur_sqlen + past_sqlen;
     Matrix3D<float> attn_mask(this->attention_mask_buf.get(), bs, cur_sqlen, entire_sq_len);
     prepare_decoder_attention_mask(entire_sq_len, past_sqlen, attn_mask);
+    PROFILE_END(profile_name + "::attention mask generation");
 
     // ---
     // 3rd stage: layer-by-layer inference
     // ---
+    PROFILE_START(profile_name + "::decoder layers");
     Matrix3D<float> hidden_states = token_embedding; 
     std::vector<Matrix3D<float>> past_keys, past_values;
     for (int i = 0; i < num_layers; i++)
@@ -119,16 +124,16 @@ Fp32Qwen3Model_Output Fp32Qwen3Model::forward(const struct Fp32Qwen3Model_Input 
         );
         if (!input.has_past_keys_values)
         {
-            struct Fp32Qwen3DecoderLayer_Input  layer_input   = {hidden_states, attn_mask};
-            struct Fp32Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
+            struct Qwen3DecoderLayer_Input  layer_input   = {hidden_states, attn_mask};
+            struct Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
             hidden_states = layer_output.hidden_states;
             past_keys.push_back(layer_output.past_key_value.first);
             past_values.push_back(layer_output.past_key_value.second);
         }
         else
         {
-            struct Fp32Qwen3DecoderLayer_Input  layer_input = {hidden_states, attn_mask, input.past_keys[i], input.past_values[i]};
-            struct Fp32Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
+            struct Qwen3DecoderLayer_Input  layer_input = {hidden_states, attn_mask, input.past_keys[i], input.past_values[i]};
+            struct Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
             hidden_states = layer_output.hidden_states;
             past_keys.push_back(layer_output.past_key_value.first);
             past_values.push_back(layer_output.past_key_value.second);
@@ -150,18 +155,21 @@ Fp32Qwen3Model_Output Fp32Qwen3Model::forward(const struct Fp32Qwen3Model_Input 
             hidden_states.statistics();
         );
     }
+    PROFILE_END(profile_name + "::decoder layers");
     // ---
     // 4th stage: output layernorm
     // ---
+    PROFILE_START(profile_name + "::output layernorm");
     Matrix3D<float> last_hidden_states(hidden_embed_ptr.get(), 1, cur_sqlen, hidden_dim);
     this->output_norm.forward(hidden_states, last_hidden_states);
+    PROFILE_END(profile_name + "::output layernorm");
 
     IF_DEBUG_DECODER(
         printf("\e[31m[INFO]\e[m decoder output: ");
         last_hidden_states.statistics();
     );
 
-    struct Fp32Qwen3Model_Output output  = {last_hidden_states, past_keys, past_values}; 
+    struct Qwen3Model_Output output  = {last_hidden_states, past_keys, past_values}; 
     PROFILE_END(this->profile_name);
     return output;
 }

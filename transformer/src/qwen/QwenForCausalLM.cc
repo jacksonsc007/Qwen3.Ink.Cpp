@@ -1,32 +1,38 @@
-#include "Fp32QwenForCausalLM.h"
+#include "QwenForCausalLM.h"
 
 #include <memory>
 
+#include "QwenOperator.h"
 #include "common.h"
+#include "operators.h"
+#include "utils.h"
 
-struct Fp32Qwen3ForCausalLM_Output Fp32Qwen3ForCausalLM::forward(const struct Fp32Qwen3ForCausalLM_Input& input) {
+struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCausalLM_Input& input) {
     PROFILE_START(profile_name);
     // -----------------------------
     // 1st stage: setting paras and buffers
     // -----------------------------
-    struct Fp32Qwen3Model_Output decoder_output;
+    struct Qwen3Model_Output decoder_output;
 
     // -----------------------------
     // 2nd stage: evaluate decoder
     // -----------------------------
+    PROFILE_START(profile_name + "::decoder");
     if (input.has_past_keys_values) {
         // autoregressive generation stage
-        struct Fp32Qwen3Model_Input decoder_input = {input.input_ids, input.past_keys, input.past_values};
+        struct Qwen3Model_Input decoder_input = {input.input_ids, input.past_keys, input.past_values};
         decoder_output = this->model.forward(decoder_input);
     } else {
         // prompt stage
-        struct Fp32Qwen3Model_Input decoder_input = {input.input_ids};
+        struct Qwen3Model_Input decoder_input = {input.input_ids};
         decoder_output = this->model.forward(decoder_input);
     }
+    PROFILE_END(profile_name + "::decoder");
 
     // -----------------------------
     // 3rd stage: evaluate head to get logits
     // -----------------------------
+    PROFILE_START(profile_name + "::lm_head");
     int bs = decoder_output.last_hidden_state.m_dim_x;
     int sqlen = decoder_output.last_hidden_state.m_dim_y;
     int h_dim = decoder_output.last_hidden_state.m_dim_z;
@@ -36,8 +42,9 @@ struct Fp32Qwen3ForCausalLM_Output Fp32Qwen3ForCausalLM::forward(const struct Fp
     float* last_token_last_h_ptr = &decoder_output.last_hidden_state(0, sqlen - 1, 0);
     Matrix3D<float> last_token_last_h(last_token_last_h_ptr, 1, sqlen, h_dim);
     this->lm_head.forward(last_token_last_h, logits);
+    PROFILE_END(profile_name + "::lm_head");
 
-    Fp32Qwen3ForCausalLM_Output output = {logits, decoder_output.past_keys, decoder_output.past_values};
+    Qwen3ForCausalLM_Output output = {logits, decoder_output.past_keys, decoder_output.past_values};
 
 #ifdef debug_io
     // -----------------------------
@@ -54,7 +61,7 @@ struct Fp32Qwen3ForCausalLM_Output Fp32Qwen3ForCausalLM::forward(const struct Fp
     return output;
 }
 
-Fp32Qwen3ForCausalLM::Fp32Qwen3ForCausalLM(std::string param_path, const struct qwen3_config config) {
+Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_config config) {
     int bs = config.batchsize;
     int h_dim = config.hidden_dim;
     int max_sqlen = config.max_sqlen;
@@ -68,11 +75,10 @@ Fp32Qwen3ForCausalLM::Fp32Qwen3ForCausalLM(std::string param_path, const struct 
         std::default_delete<float[]>()
     );
 
-    this->model = Fp32Qwen3Model(param_path + "/model", config);
+    this->model = Qwen3Model(param_path + "/model", config);
 
     /*
     The linear weights are serialized from PyTorch, which has shape (out_dim, in_dim)
     */
-    this->lm_head =
-        LinearFp32(Matrix3D<float>(lm_head_weight.get(), 1, vocab_size, h_dim), param_path + "/lm_head.bin");
+    this->lm_head = Qwen_Linear_with_bias_Int4(param_path + "/lm_head/", 1, vocab_size, h_dim);;
 }

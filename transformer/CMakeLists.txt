@@ -19,18 +19,19 @@ ${PROJECT_SOURCE_DIR}/src/*.cc
 ${PROJECT_SOURCE_DIR}/src/kernels/*.cc
 ${PROJECT_SOURCE_DIR}/src/kernels/ref/*.cc
 ${PROJECT_SOURCE_DIR}/src/kernels/starter_code/*.cc
+${PROJECT_SOURCE_DIR}/src/kernels/ink/*.cc
 )
 
 file(GLOB QWEN_SRCS
-${PROJECT_SOURCE_DIR}/src/qwen_fp32/*.cc
+${PROJECT_SOURCE_DIR}/src/qwen/*.cc
 )
 
 list(APPEND QWEN_INCLUDE_DIR 
-${PROJECT_SOURCE_DIR}/include/qwen_fp32
+${PROJECT_SOURCE_DIR}/include/qwen
 )
 
 list(APPEND MAIN_SRCS 
-${PROJECT_SOURCE_DIR}/tests/test_QwenChat_Fp32.cc 
+${PROJECT_SOURCE_DIR}/tests/test_QwenChat.cc 
 )
 
 # ===
