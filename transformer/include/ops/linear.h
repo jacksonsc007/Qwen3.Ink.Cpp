@@ -1,5 +1,6 @@
 #include "common.h"
 #include "utils.h"
+
 class LinearFp32 {
    public:
     LinearFp32(Matrix3D<float> weight_, std::string weight_path) : weight(weight_) {

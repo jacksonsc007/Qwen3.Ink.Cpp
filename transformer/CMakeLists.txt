@@ -22,11 +22,11 @@ ${PROJECT_SOURCE_DIR}/src/kernels/starter_code/*.cc
 )
 
 file(GLOB QWEN_SRCS
-${PROJECT_SOURCE_DIR}/src/qwen/*.cc
+${PROJECT_SOURCE_DIR}/src/qwen_fp32/*.cc
 )
 
 list(APPEND QWEN_INCLUDE_DIR 
-${PROJECT_SOURCE_DIR}/include/qwen
+${PROJECT_SOURCE_DIR}/include/qwen_fp32
 )
 
 list(APPEND MAIN_SRCS 
