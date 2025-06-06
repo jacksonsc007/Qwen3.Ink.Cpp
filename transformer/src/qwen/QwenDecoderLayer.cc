@@ -96,8 +96,12 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     // -----------------------------
     PROFILE_START(profile_name + "::self-attention");
     Qwen3Attention_Input attn_param(
-        hidden_states, input.attention_mask, input.past_key,
-        input.past_value, input.has_past_key_value, this->layer_idx
+        hidden_states,
+        input.attention_mask,
+        input.past_key,
+        input.past_value,
+        input.has_past_key_value,
+        this->layer_idx
     );
     Qwen3Attention_Output attn_output = this->attn.forward(attn_param);
     Matrix3D<float> residual_out =  add(input.hidden_states_arr, attn_output.attn_output);

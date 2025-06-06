@@ -69,7 +69,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     PROFILE_END(profile_name + "::embedding");
     if (input.has_past_keys_values)
     {
-        past_sqlen = input.past_keys[0].m_dim_y;
+        past_sqlen = input.past_keys[0].m_dim_x;
     }
     IF_DEBUG_IO(
         // std::string save_path = "/root/workspace/tinyml/TinyChatEngine/qwen-7b-chat/transformer/activation/input_embeds.bin";
@@ -110,7 +110,13 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
         }
         else
         {
-            struct Qwen3DecoderLayer_Input  layer_input = {hidden_states, attn_mask, input.past_keys[i], input.past_values[i]};
+            struct Qwen3DecoderLayer_Input  layer_input = {
+                hidden_states,
+                attn_mask,
+                // pass KV Cache for curent layer
+                input.past_keys[i],
+                input.past_values[i]
+            };
             struct Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
             hidden_states = layer_output.hidden_states;
             past_keys.push_back(layer_output.past_key_value.first);

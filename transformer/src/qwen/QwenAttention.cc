@@ -127,9 +127,13 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     value_states_unshape.view(bs * sqlen, num_kv_head, head_dim);
     Matrix3D<float> value_states = value_states_unshape.permute01();
     
-    int start_idx = 0;
-    if (input.has_past_key_value) start_idx = input.past_key.m_dim_y;
-    this->rope_embed.apply(query_states, key_states, start_idx, sqlen);
+    int past_sqlen = 0;
+    if (input.has_past_key_value) 
+    {
+        past_sqlen = input.past_key.m_dim_x;
+    }
+    int total_context_sqlen = past_sqlen + sqlen;
+    this->rope_embed.apply(query_states, key_states, past_sqlen, sqlen);
     PROFILE_END(profile_name + "::QKV Generation");
     
     /*
@@ -144,67 +148,38 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     free_space_indicator identifies new and old KV cache space.
     */
     PROFILE_START(profile_name + "::refresh KV Cache");
-    // Prepare the buffer for KV Cache to update
-    float *new_value_arr_cache, *new_key_arr_cache;
-    // TODO: try conditional move
-    if (free_space_indicator[layer_idx] == 0)
+    Matrix3D<float> entire_value_states;
+    Matrix3D<float> entire_key_states;
+    // Matrix3D<float> final_value_states(all_value_state_arr, num_kv_head, total_context_sqlen, head_dim);
+    // Matrix3D<float> final_key_states(all_key_state_arr, num_kv_head, total_context_sqlen, head_dim);
+    if (!input.has_past_key_value)
     {
-        new_key_arr_cache = key_states_arr_cache[layer_idx][0];
-        new_value_arr_cache = value_states_arr_cache[layer_idx][0];
-        // the original KV cache expires once we finished updating 
-        free_space_indicator[layer_idx] = 1;
+        // num_kv_head, bs * first_round_prompt_sqlen, head_dim
+        entire_key_states = key_states.permute01();
+        entire_value_states = value_states_unshape;
     }
-    else
+    else 
     {
-        new_key_arr_cache = key_states_arr_cache[layer_idx][1];
-        new_value_arr_cache = value_states_arr_cache[layer_idx][1];
-        free_space_indicator[layer_idx] = 0;
-    }
+        /* 
+        key_states_unshape: (cur_len, num_kv_head, head_dim);
+        k_cache shape: (past_sqlen, num_k_heads, head_dim)
+
+        */
+        // TODO: Does copy occur? Consider use std::move
+        Matrix3D<float> k_cache = input.past_key;
+        Matrix3D<float> v_cache = input.past_value;
+        // assert(k_cache.m_dim_x == max_sqlen);
+        assert(k_cache.m_dim_y == num_kv_head);
+        assert(k_cache.m_dim_z == head_dim);
+        entire_key_states = (k_cache.cat(key_states.permute01()));
+        entire_value_states = (v_cache.cat(value_states_unshape));
     
-    int total_context_sqlen = sqlen;
-    if (input.has_past_key_value)
-    {
-        assert (sqlen == 1);
-        // update KV cache
-        assert (input.past_key.m_dim_x == num_kv_head);
-        int past_sqlen = input.past_key.m_dim_y;
-        total_context_sqlen += past_sqlen;
-
-        // (num_heads, past_len, head_dim) -> (num_heads, past_len + cur_len, head_dim); Row-major
-        int num_past_element = past_sqlen * head_dim;
-        int num_cur_element = sqlen * head_dim;
-        float * traverse_ptr_k = new_key_arr_cache, * traverse_ptr_v = new_value_arr_cache; // only functions as index
-        for (int head_idx = 0; head_idx < num_kv_head; head_idx++)
-        {
-            // Along the head dim, append the current key and value to the cache
-            memcpy(traverse_ptr_k, &input.past_key.data()[head_idx * num_past_element], sizeof(float) * num_past_element);
-            traverse_ptr_k += num_past_element;
-            memcpy(traverse_ptr_k, &key_states.data()[head_idx * num_cur_element], sizeof(float) * num_cur_element);
-            traverse_ptr_k += num_cur_element;
-
-            memcpy(traverse_ptr_v, &input.past_value.data()[head_idx * num_past_element], sizeof(float) * num_past_element);
-            traverse_ptr_v += num_past_element;
-            memcpy(traverse_ptr_v, &value_states.data()[head_idx * num_cur_element], sizeof(float) * num_cur_element);
-            traverse_ptr_v += num_cur_element;
-        }
-
     }
-    else
-    {
-        // generate first KV Cache
-        memcpy(new_key_arr_cache, key_states.data(), sizeof(float) * num_kv_head * sqlen * head_dim);
-        memcpy(new_value_arr_cache, value_states.data(), sizeof(float) * num_kv_head * sqlen * head_dim);
-        
-    }
-    // get the whole-context KV
-    float *all_key_state_arr = new_key_arr_cache;
-    float *all_value_state_arr = new_value_arr_cache; 
+
 
     int group_size = num_q_head / num_kv_head;
-    Matrix3D<float> final_value_states(all_value_state_arr, num_kv_head, total_context_sqlen, head_dim);
-    Matrix3D<float> final_value_states_expanded = final_value_states.repeat(0, group_size);
-    Matrix3D<float> final_key_states(all_key_state_arr, num_kv_head, total_context_sqlen, head_dim);
-    Matrix3D<float> final_key_states_expanded = final_key_states.repeat(0, group_size);
+    Matrix3D<float> final_key_states_expanded = entire_key_states.permute01().repeat(0, group_size);
+    Matrix3D<float> final_value_states_expanded = entire_value_states.permute01().repeat(0, group_size);
 
     PROFILE_END(profile_name + "::refresh KV Cache");
 
@@ -345,7 +320,7 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // stage3: Output assignment and wrapping up instrumentation code
     // ---------------------------------------------------------------
     output.attn_output = attn_output_fp;
-    output.past_key_value = { final_key_states, final_value_states };
+    output.past_key_value = { entire_key_states, entire_value_states };
     PROFILE_END(profile_name);
     return output;
 }

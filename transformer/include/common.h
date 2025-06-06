@@ -37,7 +37,7 @@
 #endif
 
 #ifdef DEBUG_ATTENTION
-    #define IF_DEBUG_ATTENTION(code) do { code } while (0);
+    #define IF_DEBUG_ATTENTION(code) do { code ;} while (0);
 #else
     #define IF_DEBUG_ATTENTION(code) do { } while (0);
 #endif
@@ -146,6 +146,17 @@ public:
         swap(first.m_dim_x, second.m_dim_x);
         swap(first.m_dim_y, second.m_dim_y);
         swap(first.m_dim_z, second.m_dim_z);
+    }
+
+    // concatenate two matrix along x dim
+    Matrix3D cat(Matrix3D other)
+    {
+        assert(other.m_dim_y = m_dim_y);
+        assert(other.m_dim_z = m_dim_z);
+        Matrix3D output = Matrix3D(other.m_dim_x + m_dim_x, m_dim_y, m_dim_z);
+        std::copy(m_data.get(), m_data.get() + size(), output.data());
+        std::copy(other.data(), other.data() + other.size(), output.data() + size());
+        return output;
     }
     
     // exchange dimension 0 and 1
