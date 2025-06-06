@@ -39,10 +39,12 @@ class Qwen3Attention {
 public:
     // construct
     Qwen3Attention(){}
-    Qwen3Attention(std::string param_path, const struct qwen3_config config);
+    Qwen3Attention(std::string param_path, struct qwen3_config config, int layer_idx);
 
     // member
     int hidden_dim, head_dim, max_sqlen;
+    int layer_idx;
+    std::string params_path;
     int num_q_head, num_kv_head;
     int q_dim, kv_dim;
     Qwen_Linear_with_bias_Int4 k_proj, v_proj, q_proj, o_proj;
@@ -53,5 +55,5 @@ public:
 
     // method
     static void initialize_memory(const struct qwen3_config config);
-    struct Qwen3Attention_Output forward(const struct Qwen3Attention_Input &input);
+    struct Qwen3Attention_Output forward(struct Qwen3Attention_Input &input);
 };

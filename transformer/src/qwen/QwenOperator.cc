@@ -1,6 +1,8 @@
 #include <cmath>
+#include <cstdint>
 #include <iomanip>
 
+#include "common.h"
 #include "utils.h"
 #include "QwenOperator.h"
 #include <cassert>
@@ -30,22 +32,6 @@ bool has_nan(Matrix3D<float> mat)
     return res;
 }
     
-void permute01(Matrix3D<float> before, Matrix3D<float> after)
-{
-    PROFILE_START("QwenAttention::permute");
-    int dim_x = after.m_dim_x;
-    int dim_y = after.m_dim_y;
-    int dim_z = after.m_dim_z;
-    
-    for (int i = 0; i < dim_x; i++)
-        for (int j = 0; j < dim_y; j++)
-            for (int k = 0; k < dim_z; k++)
-            {
-                // shaped[i, j, k] = unshape[0, j, i * head_dim + k]
-                after(i, j, k) = before(j, i, k);
-            }
-    PROFILE_END("QwenAttention::permute");
-}
 
 // @abstract: reshape a matrix of shape (1, sqlen, embed_dim) to shape (num_head, sqlen, head_dim)
 void reshape_headfirst(Matrix3D<float> before, Matrix3D<float> after)
@@ -85,16 +71,20 @@ void reshape_seqfirst(Matrix3D<float> before, Matrix3D<float> after)
 }
 
 
-void Qwen3RMSNorm::forward(const Matrix3D<float> &x, Matrix3D<float> &output, const int dim) {
+void Qwen3RMSNorm::load(std::string path)
+{
+    weight.load(path.c_str());
+}
+
+
+Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
     PROFILE_START(profile_name);
 
     assert(dim == -1); // only support apply norm on last dim for now
     // x: (L, n_heads, head_dim)
     // weight: (1, 1, head_dim)
-    assert(output.m_dim_x == x.m_dim_x);
-    assert(output.m_dim_y == x.m_dim_y);
-    assert(output.m_dim_z == x.m_dim_z);
     assert(x.m_dim_z == weight.m_dim_z);
+    Matrix3D<float> output = x.as_shape();
 
     for (int i = 0; i < x.m_dim_x; i++) {      // batches
         for (int j = 0; j < x.m_dim_y; j++) {  // samples
@@ -115,66 +105,53 @@ void Qwen3RMSNorm::forward(const Matrix3D<float> &x, Matrix3D<float> &output, co
     }
 
     PROFILE_END(profile_name);
+    return output;
 }
 
-/*
-x_int8 : quantized int8 actication
-x_scale: scaling factors
-*/
-static int8_t *x_int8;
-static float *x_scale;
 
-void Qwen_Linear_with_bias_Int4::initialize_memory(const int block_size)
-{
-    // reserve memory for maximum sequence length (1, max_sqlen, embed_dim)
-    // ques: is this an error? MAX_LINEAR_LENGTH
-    allocate_aligned_memory(x_int8, MAX_LINEAR_LENGTH * sizeof(int8_t));
-    allocate_aligned_memory(x_scale, (MAX_LINEAR_LENGTH / block_size) * sizeof(float) );
-}
-
-void Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
+Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation) {
     const int num_thread = 16;
-    Matrix3D<uint8_t> b = this->weight;
-    const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
+    const int bs = activation.m_dim_x;
+    const int m = activation.m_dim_y, n = weight.m_dim_y, k = activation.m_dim_z, b_size = weight.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
-
+    Matrix3D<float> output (bs, m, n);
     std::ostringstream oss;
     oss << "[" << profile_name << ": " << m << " x " << n << " x " << k << "]";
     std::string formatted_profile_name = oss.str();
     PROFILE_START_FLOPS(formatted_profile_name, ops);
 
                                          // A: 1 x m x k float32  B: 1 x n x (k / 2) uint8   C: m x n (float32)
-    assert(a.m_dim_x == b.m_dim_x);      // batch dim
-    assert(a.m_dim_z / 2 == b.m_dim_z);  // k
-    assert(a.m_dim_y == c.m_dim_y);      // m
-    assert(b.m_dim_y == c.m_dim_z);      // n
+    assert(activation.m_dim_x == weight.m_dim_x);      // batch dim
+    assert(activation.m_dim_z / 2 == weight.m_dim_z);  // k
+    assert(activation.m_dim_y == output.m_dim_y);      // m
+    assert(weight.m_dim_y == output.m_dim_z);      // n
                                          // batch dim == 1 only support MM for now
-    assert(a.m_dim_x == 1);
-    assert(b.m_dim_x == 1);
+    assert(activation.m_dim_x == 1);
+    assert(weight.m_dim_x == 1);
 
     struct qwen_matmul_params params;
-    params.A.row                 = a.m_dim_y;
-    params.A.column              = a.m_dim_z;
-    params.A.data_ptr            = a.m_data;
-    params.B.row                 = b.m_dim_z;                // k
-    params.B.column              = b.m_dim_y;                // n
-    params.B.int4_data_ptr       = b.m_data;
+    params.A.row                 = activation.m_dim_y;
+    params.A.column              = activation.m_dim_z;
+    params.A.data_ptr            = activation.data();
+    params.B.row                 = weight.m_dim_z;                // k
+    params.B.column              = weight.m_dim_y;                // n
+    params.B.int4_data_ptr       = weight.data();
 
-    params.B.data_ptr       = this->fp32_weight.m_data;
-
-    params.C.row                 = c.m_dim_y;
-    params.C.column              = c.m_dim_z;
-    params.C.data_ptr            = c.m_data;
+    params.C.row                 = output.m_dim_y;
+    params.C.column              = output.m_dim_z;
+    params.C.data_ptr            = output.data();
     params.opt_params.num_thread = NUM_THREAD;
-    params.scales                = this->scale.m_data;
-    params.offset                = this->offset.m_data;
-    params.zero_point            = this->zero_point.m_data;
+    params.scales                = this->scale.data();
+    params.offset                = this->offset.data();
+    params.zero_point            = this->zero_point.data();
     params.block_size            = QK;
 
+    activation_int8 = Matrix3D<int8_t>(bs, m, k);
+    activation_scale = Matrix3D<float>(bs, m, k / QK);
+    params.A.int8_data_ptr = activation_int8.data();
+    params.A_scales = activation_scale.data();
+
     matmul::MatmulOperator op = matmul::MatmulOperator();
-    if (!x_int8) this->initialize_memory(QK);
-    params.A.int8_data_ptr = x_int8;
-    params.A_scales = x_scale;
     // op.matMul_int4_multiThread_qwen(&params);
     // op.matMul_int4_avx_qwen(&params);
     // op.matMul_int4_multiThread_avx_qwen(&params);
@@ -200,76 +177,18 @@ void Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &a, Matrix3D<floa
         oss << "[" << profile_name << " bias_add: " << m << " x " << n << " x " << k << "]";
         std::string formatted_profile_name = oss.str();
         Matrix3D<float> bias = this->bias; // (1, n, 1)
-        assert (bias.m_dim_y == b.m_dim_y);
+        assert (bias.m_dim_y == weight.m_dim_y);
         PROFILE_START(formatted_profile_name);
         for (int i = 0; i < m; i++)
         {
             for (int j = 0; j < n; j++)
             {
-                c(0, i, j) += bias(0, j, 0);
+                output(0, i, j) += bias(0, j, 0);
             }
         }
         PROFILE_END(formatted_profile_name);
     }
 
     PROFILE_END(formatted_profile_name);
-    return;
-}
-
-void Qwen_Linear_with_bias_Int4::forward_reference(const Matrix3D<float> &a, Matrix3D<float> &c) {
-    const int num_thread = 16;
-    Matrix3D<uint8_t> b = this->weight;
-    const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
-    const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
-    // PROFILE_START_FLOPS(profile_name, ops);
-
-                                         // A: 1 x m x k float32  B: 1 x n x (k / 2) uint8   C: m x n (float32)
-    assert(a.m_dim_x == b.m_dim_x);      // batch dim
-    assert(a.m_dim_z / 2 == b.m_dim_z);  // k
-    assert(a.m_dim_y == c.m_dim_y);      // m
-    assert(b.m_dim_y == c.m_dim_z);      // n
-                                         // batch dim == 1 only support MM for now
-    assert(a.m_dim_x == 1);
-    assert(b.m_dim_x == 1);
-
-    struct qwen_matmul_params params;
-    params.A.row                 = a.m_dim_y;
-    params.A.column              = a.m_dim_z;
-    params.A.data_ptr            = a.m_data;
-    params.B.row                 = b.m_dim_z;                // k
-    params.B.column              = b.m_dim_y;                // n
-    params.B.int4_data_ptr       = b.m_data;
-
-    params.B.data_ptr       = this->fp32_weight.m_data;
-
-    params.C.row                 = c.m_dim_y;
-    params.C.column              = c.m_dim_z;
-    params.C.data_ptr            = c.m_data;
-    params.opt_params.num_thread = NUM_THREAD;
-    params.scales                = this->scale.m_data;
-    params.offset                = this->offset.m_data;
-    params.zero_point            = this->zero_point.m_data;
-    params.block_size            = QK;
-
-    matmul::MatmulOperator op = matmul::MatmulOperator();
-    if (!x_int8) this->initialize_memory(QK);
-    params.A.int8_data_ptr = x_int8;
-    params.A_scales = x_scale;
-    op.matMul_int4Reference_qwen(&params);
-    // add bias TODO: simd
-    if (has_bias)
-    {
-        Matrix3D<float> bias = this->bias; // (1, n, 1)
-        assert (bias.m_dim_y == b.m_dim_y);
-        for (int i = 0; i < m; i++)
-        {
-            for (int j = 0; j < n; j++)
-            {
-                c(0, i, j) += bias(0, j, 0);
-            }
-        }
-    }
-
-    // PROFILE_END(profile_name);
-    return;
+    return output;
 }

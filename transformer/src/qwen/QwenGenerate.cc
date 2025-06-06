@@ -67,7 +67,7 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
         past_values = model_output.past_values;
         // we only need the logit of last token
         Matrix3D<float> last_token_logits = model_output.logits;
-        memcpy(logits.data(), last_token_logits.m_data, vocab_size*sizeof(float));
+        memcpy(logits.data(), last_token_logits.data(), vocab_size*sizeof(float));
         has_past_kv = true;
     // ===========================
     // Stage3: Sampling strategy

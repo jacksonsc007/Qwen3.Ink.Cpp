@@ -7,8 +7,8 @@ void load_BMM_F32T(BMM_F32T &op, std::string prefix) {
 
 BMM_F32T::BMM_F32T(float _alpha) { this->alpha = _alpha; }
 
-void BMM_F32T::forward(const Matrix3D<float> &a, const Matrix3D<float> &weight, Matrix3D<float> &c) {
-    const Matrix3D<float> b = weight;
+void BMM_F32T::forward(Matrix3D<float> &a, Matrix3D<float> &weight, Matrix3D<float> &c) {
+    Matrix3D<float> b = weight;
     const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
     PROFILE_START_FLOPS(profile_name, ops);
@@ -22,13 +22,13 @@ void BMM_F32T::forward(const Matrix3D<float> &a, const Matrix3D<float> &weight, 
     struct matmul_params params;
     params.A.row = a.m_dim_y;
     params.A.column = a.m_dim_z;
-    params.A.data_ptr = a.m_data;
+    params.A.data_ptr = a.data();
     params.B.row = b.m_dim_y;
     params.B.column = b.m_dim_z;
-    params.B.data_ptr = b.m_data;
+    params.B.data_ptr = b.data();
     params.C.row = c.m_dim_y;
     params.C.column = c.m_dim_z;
-    params.C.data_ptr = c.m_data;
+    params.C.data_ptr = c.data();
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;
     params.alpha = alpha;
@@ -53,9 +53,9 @@ void BMM_F32T::forward(const Matrix3D<float> &a, const Matrix3D<float> &weight, 
     PROFILE_END(profile_name);
 }
 
-void BMM_F32T::forward_weight_untransposed(const Matrix3D<float> &a, const Matrix3D<float> &weight,
+void BMM_F32T::forward_weight_untransposed(Matrix3D<float> &a, Matrix3D<float> &weight,
                                            Matrix3D<float> &c) {
-    const Matrix3D<float> b = weight;
+    Matrix3D<float> b = weight;
     const int m = a.m_dim_y, n = c.m_dim_z, k = a.m_dim_z, b_size = b.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
     PROFILE_START_FLOPS(profile_name, ops);
@@ -69,13 +69,13 @@ void BMM_F32T::forward_weight_untransposed(const Matrix3D<float> &a, const Matri
     struct matmul_params params;
     params.A.row = a.m_dim_y;
     params.A.column = a.m_dim_z;
-    params.A.data_ptr = a.m_data;
+    params.A.data_ptr = a.data();
     params.B.row = b.m_dim_y;
     params.B.column = b.m_dim_z;
-    params.B.data_ptr = b.m_data;
+    params.B.data_ptr = b.data();
     params.C.row = c.m_dim_y;
     params.C.column = c.m_dim_z;
-    params.C.data_ptr = c.m_data;
+    params.C.data_ptr = c.data();
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;
     params.alpha = alpha;

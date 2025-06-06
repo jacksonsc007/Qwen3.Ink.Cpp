@@ -1,10 +1,7 @@
 #include "QwenForCausalLM.h"
 
-#include <memory>
-
 #include "QwenOperator.h"
 #include "common.h"
-#include "operators.h"
 #include "utils.h"
 
 struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCausalLM_Input& input) {
@@ -38,10 +35,9 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
     int h_dim = decoder_output.last_hidden_state.m_dim_z;
     ASSERT(bs == 1);
 
-    Matrix3D<float> logits(lm_head_output.get(), 1, sqlen, this->model.voc_size);
     float* last_token_last_h_ptr = &decoder_output.last_hidden_state(0, sqlen - 1, 0);
     Matrix3D<float> last_token_last_h(last_token_last_h_ptr, 1, sqlen, h_dim);
-    this->lm_head.forward(last_token_last_h, logits);
+    Matrix3D<float> logits = this->lm_head.forward(last_token_last_h);
     PROFILE_END(profile_name + "::lm_head");
 
     Qwen3ForCausalLM_Output output = {logits, decoder_output.past_keys, decoder_output.past_values};
@@ -66,14 +62,7 @@ Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_co
     int h_dim = config.hidden_dim;
     int max_sqlen = config.max_sqlen;
     int vocab_size = config.vocsize;
-    lm_head_output = std::shared_ptr<float>(
-        new float[bs * max_sqlen * vocab_size],
-        std::default_delete<float[]>()
-    );
-    lm_head_weight = std::shared_ptr<float>(
-        new float[h_dim * vocab_size],
-        std::default_delete<float[]>()
-    );
+    lm_head_weight = Matrix3D<float>(1, h_dim, vocab_size);
 
     this->model = Qwen3Model(param_path + "/model", config);
 

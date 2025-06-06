@@ -21,13 +21,13 @@ W8A8BFP32OFP32Linear::W8A8BFP32OFP32Linear(struct W8A8BFP32OFP32Linear_params &o
     params.A.qparams.zero_point = 0;
     params.B.row = k;
     params.B.column = n;
-    params.B.int8_data_ptr = weight.m_data;
+    params.B.int8_data_ptr = weight.m_data.get();
     params.B.qparams.zero_point = 0;
     params.C.column = n;
     params.C.qparams.zero_point = 0;
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;
-    params.bias.data_ptr = bias.m_data;
+    params.bias.data_ptr = bias.m_data.get();
     params.bias.row = 1;
     params.bias.column = bias.m_dim_z;
 }
@@ -44,11 +44,11 @@ void W8A8BFP32OFP32Linear::forward(const Matrix3D<int8_t> &x, Matrix3D<float> &o
 
     params.A.row = m;
     params.A.column = k;
-    params.A.int8_data_ptr = x.m_data;
+    params.A.int8_data_ptr = x.m_data.get();
     params.A.qparams.scale = alpha;  // effective_scale = a * B / C
     params.C.row = m;
     params.C.column = n;
-    params.C.data_ptr = output.m_data;
+    params.C.data_ptr = output.m_data.get();
     params.C.qparams.zero_point = 0;
     params.alpha = alpha;
 

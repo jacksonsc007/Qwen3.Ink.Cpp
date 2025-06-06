@@ -4,8 +4,8 @@ class BMM_F32T {
    public:
     BMM_F32T(float _alpha);
     BMM_F32T(){};
-    void forward(const Matrix3D<float> &x, const Matrix3D<float> &weight, Matrix3D<float> &output);
-    void forward_weight_untransposed(const Matrix3D<float> &x, const Matrix3D<float> &weight, Matrix3D<float> &output);
+    void forward(Matrix3D<float> &x, Matrix3D<float> &weight, Matrix3D<float> &output);
+    void forward_weight_untransposed(Matrix3D<float> &x, Matrix3D<float> &weight, Matrix3D<float> &output);
     float alpha;
 
    private:

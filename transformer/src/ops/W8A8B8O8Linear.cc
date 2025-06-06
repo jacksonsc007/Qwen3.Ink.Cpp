@@ -23,14 +23,14 @@ W8A8B8O8Linear::W8A8B8O8Linear(struct W8A8B8O8Linear_params &op_params) {
     params.A.qparams.zero_point = 0;
     params.B.row = k;
     params.B.column = n;
-    params.B.int8_data_ptr = weight.m_data;
+    params.B.int8_data_ptr = weight.m_data.get();
     params.B.qparams.zero_point = 0;
     params.C.qparams.zero_point = 0;
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;
     params.C.qparams.q_max = 127;
     params.C.qparams.q_min = -128;
-    params.bias.int8_data_ptr = bias.m_data;
+    params.bias.int8_data_ptr = bias.m_data.get();
     params.bias.row = 1;
     params.bias.column = n;
 }
@@ -47,10 +47,10 @@ void W8A8B8O8Linear::forward(const Matrix3D<int8_t> &x, Matrix3D<int8_t> &output
 
     params.A.row = m;
     params.A.column = k;
-    params.A.int8_data_ptr = x.m_data;
+    params.A.int8_data_ptr = x.m_data.get();
     params.C.row = m;
     params.C.column = n;
-    params.C.int8_data_ptr = output.m_data;
+    params.C.int8_data_ptr = output.m_data.get();
     params.A.qparams.scale = alpha;
     params.alpha = alpha;
     params.beta = beta;

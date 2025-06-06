@@ -1,6 +1,7 @@
 #ifndef _QWENOPERATOR_H
 #define _QWENOPERATOR_H
 
+#include <cstdint>
 #include "common.h"
 #include "utils.h"
 
@@ -27,16 +28,12 @@ class Qwen_Linear_with_bias_Int4
         int8_t * zero_point_arr;
         long long weight_size = (long long )weight_dim_x * (long long )weight_dim_y * (long long )weight_dim_z; // total number of weights
         int num_blocks  = weight_size/ QK;
-        allocate_aligned_memory(weight_arr,  weight_size * sizeof(uint8_t) / 2); // each uint8_t contains two int4 weights
-        allocate_aligned_memory(scale_arr,  num_blocks * sizeof(float));
-        allocate_aligned_memory(offset_arr,  1 * sizeof(float));
-        allocate_aligned_memory(zero_point_arr,  num_blocks * sizeof(int8_t));
 
-        weight = Matrix3D<uint8_t>(weight_arr, weight_dim_x, weight_dim_y, weight_dim_z / 2);
+        weight = Matrix3D<uint8_t>(weight_dim_x, weight_dim_y, weight_dim_z / 2);
         assert (weight_dim_x * weight_dim_y * weight_dim_z / QK  == num_blocks);
-        scale = Matrix3D<float>(scale_arr, weight_dim_x, weight_dim_y, weight_dim_z / QK);
-        offset = Matrix3D<float>(offset_arr, 1, 1, 1);
-        zero_point = Matrix3D<int8_t>(zero_point_arr, weight_dim_x, weight_dim_y, weight_dim_z / QK);
+        scale = Matrix3D<float>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
+        offset = Matrix3D<float>(1, 1, 1);
+        zero_point = Matrix3D<int8_t>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
         
         weight.load((path     + "weight_int4.bin").c_str());
         // offset.load((path     + "offset_int4.bin").c_str()); 
@@ -63,19 +60,13 @@ class Qwen_Linear_with_bias_Int4
         long long weight_size = (long long )weight_dim_x * (long long )weight_dim_y * (long long )weight_dim_z; // total number of weights
         long long bias_size = bias_dim_x * bias_dim_y * bias_dim_z; // total number of bias
         int num_blocks  = weight_size/ QK;
-        allocate_aligned_memory(weight_arr,  weight_size * sizeof(uint8_t) / 2); // each uint8_t contains two int4 weights
-        // TODOink: quantize bias?
-        allocate_aligned_memory(bias_arr,  bias_size * sizeof(float));
-        allocate_aligned_memory(scale_arr,  num_blocks * sizeof(float));
-        allocate_aligned_memory(offset_arr,  1 * sizeof(float));
-        allocate_aligned_memory(zero_point_arr,  num_blocks * sizeof(int8_t));
 
-        weight = Matrix3D<uint8_t>(weight_arr, weight_dim_x, weight_dim_y, weight_dim_z / 2);
+        weight = Matrix3D<uint8_t>(weight_dim_x, weight_dim_y, weight_dim_z / 2);
         assert (weight_dim_x * weight_dim_y * weight_dim_z / QK  == num_blocks);
-        bias = Matrix3D<float>(bias_arr, bias_dim_x, bias_dim_y, bias_dim_z);
-        scale = Matrix3D<float>(scale_arr, weight_dim_x, weight_dim_y, weight_dim_z / QK);
-        offset = Matrix3D<float>(offset_arr, 1, 1, 1);
-        zero_point = Matrix3D<int8_t>(zero_point_arr, weight_dim_x, weight_dim_y, weight_dim_z / QK);
+        bias = Matrix3D<float>(bias_dim_x, bias_dim_y, bias_dim_z);
+        scale = Matrix3D<float>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
+        offset = Matrix3D<float>(1, 1, 1);
+        zero_point = Matrix3D<int8_t>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
         
         weight.load((path     + "weight_int4.bin").c_str());
         bias.load((path       + "bias.bin").c_str()); // TODO: could bias be quantized?
@@ -94,7 +85,7 @@ class Qwen_Linear_with_bias_Int4
 
     };
     Qwen_Linear_with_bias_Int4(){};
-    void forward(const Matrix3D<float> &x, Matrix3D<float> &output);
+    Matrix3D<float> forward( Matrix3D<float> &x);
     // method to evaluate the correctness optimization method
     void forward_reference(const Matrix3D<float> &x, Matrix3D<float> &output);
     void initialize_memory(const int block_size);
@@ -104,6 +95,8 @@ class Qwen_Linear_with_bias_Int4
     Matrix3D<float> bias;
     Matrix3D<float> scale, offset;
     Matrix3D<int8_t> zero_point; // quantization related parameters
+    Matrix3D<int8_t> activation_int8;
+    Matrix3D<float> activation_scale;
     bool has_bias = false;
 
     std::string profile_name = "Qwen_Linear_with_bias_Int4";
@@ -111,9 +104,12 @@ class Qwen_Linear_with_bias_Int4
 
 class Qwen3RMSNorm{
    public:
-    Qwen3RMSNorm(Matrix3D<float> _weight) : weight(_weight){};
+    Qwen3RMSNorm(int hidden_dim) {
+        weight = Matrix3D<float>(1, 1, hidden_dim);
+    };
     Qwen3RMSNorm(){};
-    void forward(const Matrix3D<float> &x, Matrix3D<float> &output, int dim = -1);
+    void load(std::string path);
+    Matrix3D<float> forward(const Matrix3D<float> &x,int dim = -1);
     Matrix3D<float> weight;
     float eps = 1e-6;
 

@@ -1,8 +1,6 @@
 #include "QwenDecoder.h"
 #include "common.h"
 #include "utils.h"
-#include <memory>
-#include <sstream>
 
 void Qwen3Model::prepare_decoder_attention_mask(int length, int past_length, Matrix3D<float>& attn_mask)
 {
@@ -30,36 +28,17 @@ Qwen3Model::Qwen3Model(std::string param_path, const struct qwen3_config config)
     num_layers = config.num_layers;
     bs = config.batchsize;
     this->param_path = param_path;
-    
-    // allocate space for intermediate values
-    hidden_embed_ptr = std::shared_ptr<float> (
-        new float[bs * max_sqlen * hidden_dim],
-        std::default_delete<float []>()
-    );
-    attention_mask_buf = std::shared_ptr<float> (
-        new float[bs * max_sqlen * max_sqlen],
-        std::default_delete<float []>()
-    );
 
-    // work token embeddings
-    wte_weight_ptr = std::shared_ptr<float> (
-        new float[voc_size * hidden_dim],
-        std::default_delete<float []>()
-    );
-    Matrix3D<float> wte_weight(wte_weight_ptr.get(), 1, voc_size, hidden_dim);
-    wte = Embedding(hidden_dim, voc_size, wte_weight);
-    printf("\e[31m[INFO]\e[m Loading weights for word token embeddings ...\n");
-    load_Embedding_params(wte, param_path + "/embed_tokens");
+    IF_DEBUG(
+        printf("\e[31m[INFO]\e[m Loading weights for word token embeddings ...\n");
+    )
+    wte = Embedding(hidden_dim, voc_size);
+    wte.load(param_path + "/embed_tokens");
 
     // final output norm
-    output_norm_ptr = std::shared_ptr<float> (
-        new float[bs * max_sqlen * hidden_dim],
-        std::default_delete<float []>()
-    );
-    Matrix3D<float> output_norm_weight(output_norm_ptr.get(), 1, 1, hidden_dim); 
     printf("\e[31m[INFO]\e[m Loading weights for output norm ...\n");
-    output_norm_weight.load((param_path + "/norm/weight.bin").c_str());
-    output_norm = Qwen3RMSNorm(output_norm_weight);
+    output_norm = Qwen3RMSNorm(hidden_dim);
+    output_norm.load((param_path + "/norm/weight.bin").c_str());
 
     // decoder layers
     printf("\e[31m[INFO]\e[m Loading weights for Qwen Blocks ...\n");
@@ -86,8 +65,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     // 1st stage: transform input tokens into embeddings
     // ---
     PROFILE_START(profile_name + "::embedding");
-    Matrix3D<float> token_embedding(hidden_embed_ptr.get(), bs, cur_sqlen, hidden_dim);
-    wte.forward(input.input_ids, token_embedding);
+    Matrix3D<float> token_embedding  = wte.forward(input.input_ids);
     PROFILE_END(profile_name + "::embedding");
     if (input.has_past_keys_values)
     {
@@ -107,7 +85,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     // ---
     PROFILE_START(profile_name + "::attention mask generation");
     int entire_sq_len = cur_sqlen + past_sqlen;
-    Matrix3D<float> attn_mask(this->attention_mask_buf.get(), bs, cur_sqlen, entire_sq_len);
+    Matrix3D<float> attn_mask(bs, cur_sqlen, entire_sq_len);
     prepare_decoder_attention_mask(entire_sq_len, past_sqlen, attn_mask);
     PROFILE_END(profile_name + "::attention mask generation");
 
@@ -115,7 +93,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     // 3rd stage: layer-by-layer inference
     // ---
     PROFILE_START(profile_name + "::decoder layers");
-    Matrix3D<float> hidden_states = token_embedding; 
+    Matrix3D<float> hidden_states(std::move(token_embedding)); 
     std::vector<Matrix3D<float>> past_keys, past_values;
     for (int i = 0; i < num_layers; i++)
     {
@@ -160,8 +138,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     // 4th stage: output layernorm
     // ---
     PROFILE_START(profile_name + "::output layernorm");
-    Matrix3D<float> last_hidden_states(hidden_embed_ptr.get(), 1, cur_sqlen, hidden_dim);
-    this->output_norm.forward(hidden_states, last_hidden_states);
+    Matrix3D<float> last_hidden_states = output_norm.forward(hidden_states);
     PROFILE_END(profile_name + "::output layernorm");
 
     IF_DEBUG_DECODER(

@@ -22,18 +22,18 @@ void BMM_S8T_S8N_F32T::forward(const Matrix3D<int8_t> &x, const Matrix3D<int8_t>
 
     params.A.row = m;
     params.A.column = k;
-    params.A.int8_data_ptr = x.m_data;
+    params.A.int8_data_ptr = x.m_data.get();
     params.A.qparams.scale = alpha;  // effective_scale = a * B / C
     params.B.qparams.scale = 1.0;
     params.C.qparams.scale = 1.0;
     params.A.qparams.zero_point = 0;
     params.B.row = k;
     params.B.column = n;
-    params.B.int8_data_ptr = weight.m_data;
+    params.B.int8_data_ptr = weight.m_data.get();
     params.B.qparams.zero_point = 0;
     params.C.row = m;
     params.C.column = n;
-    params.C.data_ptr = output.m_data;
+    params.C.data_ptr = output.m_data.get();
     params.C.qparams.zero_point = 0;
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;

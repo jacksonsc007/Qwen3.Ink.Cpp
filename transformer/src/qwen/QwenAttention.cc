@@ -10,20 +10,6 @@
 #include "operators.h"
 #include "utils.h"
 
-// TODO: 1. Why use static? 2. what if we put the static in the header?
-// buffer to save QKV for current input
-static float *query_states_unshape_arr; // (1 * sqlen * embed_dim)
-static float *query_states_norm_arr; // (1 * sqlen * embed_dim)
-static float *query_states_arr; // (num_head * sqlen * head_dim)
-static float *key_states_unshape_arr;
-static float *key_states_norm_arr;
-static float *key_states_arr;
-static float *value_states_unshape_arr;
-static float *value_states_arr;
-
-// GQA
-static float *key_states_arr_expanded;
-static float *value_states_arr_expanded;
 // buffer to save the KV cache
 // (num_layers, 2, num_head * sqlen * head_dim)
 // NOTE: The 2, in the second dim, denotes two spaces, where one for storing the current KV-cache, and the other for storing the updated expanded KV cache. 
@@ -37,34 +23,12 @@ static float *** value_states_arr_cache;
 // TODO: try enum try
 static int * free_space_indicator; 
 
-static float *attn_weights_arr;
-static float *attn_probs_arr;
-static float *attn_output_arr;
-static float *attn_output_arr_reshape;
-static float *attn_output_fp_arr;
-
-
 // TODO: memory waste check. Add static before void is wrong?
 void Qwen3Attention::initialize_memory(const struct qwen3_config config) {
     int max_sqlen = config.max_sqlen;
     int hidden_dim = config.hidden_dim;
     int num_heads = config.num_q_head;
     int num_layers = config.num_layers;
-    allocate_aligned_memory(attn_weights_arr, num_heads * max_sqlen * max_sqlen * sizeof(float));
-    allocate_aligned_memory(attn_probs_arr, num_heads * max_sqlen * max_sqlen * sizeof(float));
-    allocate_aligned_memory(attn_output_fp_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(attn_output_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(attn_output_arr_reshape, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(key_states_unshape_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(key_states_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(value_states_unshape_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(value_states_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(query_states_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(query_states_unshape_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(query_states_norm_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(key_states_norm_arr, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(key_states_arr_expanded, max_sqlen * hidden_dim * sizeof(float));
-    allocate_aligned_memory(value_states_arr_expanded, max_sqlen * hidden_dim * sizeof(float));
 
     // allocate_aligned_memory(value_states_transpose_arr, max_sqlen * hidden_dim * sizeof(float));
     free_space_indicator = new int[num_layers];
@@ -86,8 +50,10 @@ void Qwen3Attention::initialize_memory(const struct qwen3_config config) {
     }
 }
 
-Qwen3Attention::Qwen3Attention(std::string param_path, const struct qwen3_config config)
+Qwen3Attention::Qwen3Attention(std::string param_path, const struct qwen3_config config, int layer_idx)
 {
+    this->layer_idx = layer_idx;
+    this->params_path = param_path;
     max_sqlen = config.max_sqlen;
     hidden_dim = config.hidden_dim;
     q_dim = hidden_dim;
@@ -115,25 +81,14 @@ Qwen3Attention::Qwen3Attention(std::string param_path, const struct qwen3_config
     IF_DEBUG(
         printf("\e[31m[INFO]\e[m Loading Attention qk norm\n");
     );
-    float *q_norm_weight;
-    allocate_aligned_memory(q_norm_weight, head_dim * sizeof(float));
-    Matrix3D<float> q_norm_mat(q_norm_weight, 1, 1, head_dim);
-    q_norm_mat.load((param_path + "/q_norm/weight.bin").c_str());
-    q_norm = Qwen3RMSNorm(q_norm_mat);
+    q_norm = Qwen3RMSNorm(head_dim);
+    q_norm.load((param_path + "/q_norm/weight.bin").c_str());
 
-    float *k_norm_weight;
-    allocate_aligned_memory(k_norm_weight, head_dim * sizeof(float));
-    Matrix3D<float> k_norm_mat(k_norm_weight, 1, 1, head_dim);
-    k_norm_mat.load((param_path + "/k_norm/weight.bin").c_str());
-    k_norm = Qwen3RMSNorm(k_norm_mat);
+    k_norm = Qwen3RMSNorm(head_dim);
+    k_norm.load((param_path + "/k_norm/weight.bin").c_str());
 
     // ROPE
-    float *cos_buf, *sin_buf;
-    allocate_aligned_memory(cos_buf, config.max_sqlen * head_dim * sizeof(float));
-    allocate_aligned_memory(sin_buf, config.max_sqlen * head_dim * sizeof(float));
-    Matrix3D<float> cos(cos_buf, 1, config.max_sqlen, head_dim);
-    Matrix3D<float> sin(sin_buf, 1, config.max_sqlen, head_dim);
-    this->rope_embed = RotaryPosEmb(cos, sin, param_path + "/../../../rotary_emb");
+    this->rope_embed = RotaryPosEmb(max_sqlen, head_dim, param_path + "/../../../rotary_emb");
 
     // scaling factor
     float qk_bmm_alpha;
@@ -141,10 +96,9 @@ Qwen3Attention::Qwen3Attention(std::string param_path, const struct qwen3_config
     this->qk_bmm = BMM_F32T(qk_bmm_alpha);
     this->pv_bmm = BMM_F32T(1.0f);
 
-
 }
 
-struct Qwen3Attention_Output Qwen3Attention::forward(const struct Qwen3Attention_Input &input)
+struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input &input)
 {
     PROFILE_START(profile_name);
     struct Qwen3Attention_Output output;
@@ -158,32 +112,24 @@ struct Qwen3Attention_Output Qwen3Attention::forward(const struct Qwen3Attention
     // TODO: Fused Generation of QKV
     PROFILE_START(profile_name + "::QKV Generation");
     assert (bs == 1);
-    Matrix3D<float> query_states_unshape(query_states_unshape_arr, bs, sqlen, q_dim);
-    Matrix3D<float> query_states_norm(query_states_norm_arr, bs * sqlen, num_q_head, head_dim);
-    Matrix3D<float> query_states(query_states_arr, num_q_head, bs * sqlen, head_dim);
-    this->q_proj.forward(input.hidden_state, query_states_unshape);
+    Matrix3D<float> query_states_unshape = q_proj.forward(input.hidden_state);
     query_states_unshape.view(bs * sqlen, num_q_head, head_dim);
-    this->q_norm.forward(query_states_unshape, query_states_norm);
+    Matrix3D<float> query_states_norm = q_norm.forward(query_states_unshape);
     // (bs * sqlen, n_head, head_dim) -> (num_head, bs*sqlen, head_dim)
-    permute01(query_states_norm, query_states);
+    Matrix3D<float> query_states = query_states_norm.permute01();
     
-    Matrix3D<float> key_states_unshape(key_states_unshape_arr, bs, sqlen, kv_dim);
-    Matrix3D<float> key_states_norm(key_states_norm_arr, bs * sqlen, num_kv_head, head_dim);
-    Matrix3D<float> key_states(key_states_arr, num_kv_head, bs * sqlen, head_dim);
-    this->k_proj.forward(input.hidden_state, key_states_unshape);
+    Matrix3D<float> key_states_unshape = k_proj.forward(input.hidden_state);
     key_states_unshape.view(bs * sqlen, num_kv_head, head_dim);
-    this->k_norm.forward(key_states_unshape, key_states_norm);
-    permute01(key_states_norm, key_states);
+    Matrix3D<float> key_states_norm = k_norm.forward(key_states_unshape);
+    Matrix3D<float> key_states = key_states_norm.permute01();
     
-    Matrix3D<float> value_states_unshape(value_states_unshape_arr, bs, sqlen, kv_dim);
-    Matrix3D<float> value_states(value_states_arr, num_kv_head, sqlen, this->head_dim);
-    this->v_proj.forward(input.hidden_state, value_states_unshape);
+    Matrix3D<float> value_states_unshape = v_proj.forward(input.hidden_state);
     value_states_unshape.view(bs * sqlen, num_kv_head, head_dim);
-    permute01(value_states_unshape, value_states);
+    Matrix3D<float> value_states = value_states_unshape.permute01();
     
     int start_idx = 0;
     if (input.has_past_key_value) start_idx = input.past_key.m_dim_y;
-    this->rope_embed.forward(query_states, key_states, start_idx, sqlen);
+    this->rope_embed.apply(query_states, key_states, start_idx, sqlen);
     PROFILE_END(profile_name + "::QKV Generation");
     
     /*
@@ -231,14 +177,14 @@ struct Qwen3Attention_Output Qwen3Attention::forward(const struct Qwen3Attention
         for (int head_idx = 0; head_idx < num_kv_head; head_idx++)
         {
             // Along the head dim, append the current key and value to the cache
-            memcpy(traverse_ptr_k, &input.past_key.m_data[head_idx * num_past_element], sizeof(float) * num_past_element);
+            memcpy(traverse_ptr_k, &input.past_key.data()[head_idx * num_past_element], sizeof(float) * num_past_element);
             traverse_ptr_k += num_past_element;
-            memcpy(traverse_ptr_k, &key_states.m_data[head_idx * num_cur_element], sizeof(float) * num_cur_element);
+            memcpy(traverse_ptr_k, &key_states.data()[head_idx * num_cur_element], sizeof(float) * num_cur_element);
             traverse_ptr_k += num_cur_element;
 
-            memcpy(traverse_ptr_v, &input.past_value.m_data[head_idx * num_past_element], sizeof(float) * num_past_element);
+            memcpy(traverse_ptr_v, &input.past_value.data()[head_idx * num_past_element], sizeof(float) * num_past_element);
             traverse_ptr_v += num_past_element;
-            memcpy(traverse_ptr_v, &value_states.m_data[head_idx * num_cur_element], sizeof(float) * num_cur_element);
+            memcpy(traverse_ptr_v, &value_states.data()[head_idx * num_cur_element], sizeof(float) * num_cur_element);
             traverse_ptr_v += num_cur_element;
         }
 
@@ -246,8 +192,8 @@ struct Qwen3Attention_Output Qwen3Attention::forward(const struct Qwen3Attention
     else
     {
         // generate first KV Cache
-        memcpy(new_key_arr_cache, key_states.m_data, sizeof(float) * num_kv_head * sqlen * head_dim);
-        memcpy(new_value_arr_cache, value_states.m_data, sizeof(float) * num_kv_head * sqlen * head_dim);
+        memcpy(new_key_arr_cache, key_states.data(), sizeof(float) * num_kv_head * sqlen * head_dim);
+        memcpy(new_value_arr_cache, value_states.data(), sizeof(float) * num_kv_head * sqlen * head_dim);
         
     }
     // get the whole-context KV
@@ -256,9 +202,9 @@ struct Qwen3Attention_Output Qwen3Attention::forward(const struct Qwen3Attention
 
     int group_size = num_q_head / num_kv_head;
     Matrix3D<float> final_value_states(all_value_state_arr, num_kv_head, total_context_sqlen, head_dim);
-    Matrix3D<float> final_value_states_expanded = final_value_states.repeat(0, group_size, value_states_arr_expanded);
+    Matrix3D<float> final_value_states_expanded = final_value_states.repeat(0, group_size);
     Matrix3D<float> final_key_states(all_key_state_arr, num_kv_head, total_context_sqlen, head_dim);
-    Matrix3D<float> final_key_states_expanded = final_key_states.repeat(0, group_size, key_states_arr_expanded);
+    Matrix3D<float> final_key_states_expanded = final_key_states.repeat(0, group_size);
 
     PROFILE_END(profile_name + "::refresh KV Cache");
 
@@ -267,7 +213,7 @@ struct Qwen3Attention_Output Qwen3Attention::forward(const struct Qwen3Attention
     // ---------------------------------------------------------------
     PROFILE_START(profile_name + "::self-attention");
     // step1: get attention weight
-    Matrix3D<float>  attn_weights(attn_weights_arr, num_q_head, sqlen, total_context_sqlen); // shape: (sqlen, final_sqlen)
+    Matrix3D<float>  attn_weights(num_q_head, sqlen, total_context_sqlen); // shape: (sqlen, final_sqlen)
     // (num_head, sqlen, head_dim) x (num_head, final_sqlen, head_dim) -> (num_head, sqlen, final_sqlen)
     this->qk_bmm.forward(query_states, final_key_states_expanded, attn_weights);
     assert(not has_nan(attn_weights));
@@ -281,41 +227,56 @@ struct Qwen3Attention_Output Qwen3Attention::forward(const struct Qwen3Attention
     assert(not has_nan(attn_weights));
     for (int i = 0; i < attn_weights.length(); i++)
     {
-        if (std::isinf(attn_weights.m_data[i]))
+        if (std::isinf(attn_weights.data()[i]))
         {
-            attn_weights.m_data[i] = std::numeric_limits<float>::lowest();
+            attn_weights.data()[i] = std::numeric_limits<float>::lowest();
         }
     }
     assert(not has_nan(attn_weights));
     // step3: apply softmax
-    Matrix3D<float> attn_probs(attn_probs_arr, num_q_head, sqlen, total_context_sqlen);
+    Matrix3D<float> attn_probs(num_q_head, sqlen, total_context_sqlen);
     // TODO: check the softmax implementation. Why find the max value?
     softmax(attn_weights, attn_probs, 2);
     
     assert(not has_nan(attn_probs));
 
     // step4: get output
-    Matrix3D<float> attn_output(attn_output_arr, num_q_head, bs * sqlen, head_dim);
+    Matrix3D<float> attn_output( num_q_head, bs * sqlen, head_dim);
     // TODO: there is a legacy implementation, need to check
     this->pv_bmm.forward_weight_untransposed(attn_probs, final_value_states_expanded, attn_output);
     // step5: reshape output: (num_head, sqlen, head_dim) -> (1, sqlen, sqlen * head_dim)
-    Matrix3D<float> attn_reshape(attn_output_arr_reshape, bs * sqlen, num_q_head, head_dim);
-    permute01(attn_output, attn_reshape);
+    Matrix3D<float> attn_reshape = attn_output.permute01();
     attn_reshape.view(bs, sqlen, hidden_dim);
     // step6: output projection
-    Matrix3D<float> attn_output_fp(attn_output_fp_arr, bs, sqlen, hidden_dim);
-    this->o_proj.forward(attn_reshape, attn_output_fp);
+    Matrix3D<float> attn_output_fp = this->o_proj.forward(attn_reshape);
     PROFILE_END(profile_name + "::self-attention");
     // --------------------------------------------------------------
     // Debug
     // --------------------------------------------------------------
-    IF_DEBUG_ATTENTION(        
+
+    IF_DEBUG_ATTENTION(([&] {
+        // only account for prompt stage correctness
+        std::string save_dir = params_path + "/activation/";
+        std::vector<std::pair<Matrix3D<float>, std::string>> state_dict{
+            {query_states, "query_states-gt.bin"},
+            {key_states, "key_states-gt.bin"},
+            {value_states, "value_states-gt.bin"},
+            {final_value_states_expanded, "final_value_states_expanded-gt.bin"},
+            {final_key_states_expanded, "final_key_states_expanded-gt.bin"},
+            {attn_weights, "attn_weights-gt.bin"},
+            {attn_output_fp, "attn_output_fp-gt.bin"}
+        };
+        for (auto& [matrix, name] : state_dict) {
+            assert(matrix.compare_with_gt(save_dir + name));
+        }
         query_states.statistics();
         key_states.statistics();
         value_states.statistics();
         attn_output.statistics();
         attn_output_fp.statistics();
+    }())
     );
+
     IF_DEBUG_IO(
 
         std::ostringstream oss;

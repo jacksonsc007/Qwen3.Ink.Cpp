@@ -5,8 +5,8 @@
 #include "utils.h"
 
 void load_LayerNorm(LayerNorm &op, std::string prefix) {
-    read_to_array((prefix + "/weight.bin").c_str(), op.params.weight.m_data, op.params.weight.length());
-    read_to_array((prefix + "/bias.bin").c_str(), op.params.bias.m_data, op.params.bias.length());
+    read_to_array((prefix + "/weight.bin").c_str(), op.params.weight.m_data.get(), op.params.weight.length());
+    read_to_array((prefix + "/bias.bin").c_str(), op.params.bias.m_data.get(), op.params.bias.length());
 }
 
 void LayerNorm::forward(const Matrix3D<float> &x, Matrix3D<float> &output) {

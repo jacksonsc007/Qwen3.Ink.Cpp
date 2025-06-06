@@ -1,5 +1,8 @@
+#include <cstdint>
 #include "Generate.h"
 #include "QwenForCausalLM.h"
+#include "QwenOperator.h"
+#include "common.h"
 #include "model.h"
 
 // std::map<std::string, int> model_config = 

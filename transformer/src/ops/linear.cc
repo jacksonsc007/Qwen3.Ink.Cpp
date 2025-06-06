@@ -26,7 +26,7 @@ void linear(Matrix3D<T> &a, Matrix3D<T> &b, Matrix3D<T> &c) {
     }
 }
 
-void LinearFp32::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
+void LinearFp32::forward(Matrix3D<float> &a, Matrix3D<float> &c) {
     Matrix3D<float> b = this->weight;
     const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
@@ -44,15 +44,15 @@ void LinearFp32::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
     struct matmul_params params;
     params.A.row = a.m_dim_y;
     params.A.column = a.m_dim_z;
-    params.A.data_ptr = a.m_data;
+    params.A.data_ptr = a.data();
 
     params.B.row = b.m_dim_z;     // k
     params.B.column = b.m_dim_y;  // n
-    params.B.data_ptr = b.m_data;
+    params.B.data_ptr = b.data();
 
     params.C.row = c.m_dim_y;
     params.C.column = c.m_dim_z;
-    params.C.data_ptr = c.m_data;
+    params.C.data_ptr = c.data();
 
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;
@@ -121,18 +121,18 @@ void Linear_FP_int4::forward_ref(const Matrix3D<float> &a, Matrix3D<float> &c) {
     struct matmul_params params;
     params.A.row = a.m_dim_y;
     params.A.column = a.m_dim_z;
-    params.A.data_ptr = a.m_data;
+    params.A.data_ptr = a.m_data.get();
     params.B.row = b.m_dim_y;
     params.B.column = b.m_dim_z;
-    params.B.int4_data_ptr = b.m_data;
+    params.B.int4_data_ptr = b.m_data.get();
     params.C.row = c.m_dim_y;
     params.C.column = c.m_dim_z;
-    params.C.data_ptr = c.m_data;
+    params.C.data_ptr = c.m_data.get();
     params.opt_params.blk_size = BLK_SIZE;
     params.opt_params.num_thread = NUM_THREAD;
-    params.scales = this->scale.m_data;
-    params.offset = this->offset.m_data;
-    params.zero_point = this->zero_point.m_data;
+    params.scales = this->scale.m_data.get();
+    params.offset = this->offset.m_data.get();
+    params.zero_point = this->zero_point.m_data.get();
     params.block_size = QK;
 
     matmul::MatmulOperator op = matmul::MatmulOperator();
@@ -161,16 +161,16 @@ void Linear_FP_int4::forward_fast(const Matrix3D<float> &x, Matrix3D<float> &out
     struct matmul_params params;
     params.A.row = x.m_dim_y;
     params.A.column = x.m_dim_z;
-    params.A.data_ptr = x.m_data;
+    params.A.data_ptr = x.m_data.get();
     params.B.row = b.m_dim_z;     // k
     params.B.column = b.m_dim_y;  // n
-    params.B.int4_data_ptr = b.m_data;
+    params.B.int4_data_ptr = b.m_data.get();
     params.C.row = output.m_dim_y;
     params.C.column = output.m_dim_z;
-    params.C.data_ptr = output.m_data;
+    params.C.data_ptr = output.m_data.get();
     params.opt_params.num_thread = num_thread;
-    params.scales = this->scale.m_data;
-    params.offset = this->offset.m_data;
+    params.scales = this->scale.m_data.get();
+    params.offset = this->offset.m_data.get();
     params.block_size = QK;
 
     matmul::MatmulOperator op = matmul::MatmulOperator();
@@ -187,7 +187,7 @@ void Linear_FP_int4::initialize_memory(const int block_size) {
     allocate_aligned_memory(x_scale, (MAX_LINEAR_LENGTH / block_size) * sizeof(float));
 }
 
-void Linear_FP_int4::forward(const Matrix3D<float> &x, Matrix3D<float> &output) {
+void Linear_FP_int4::forward(Matrix3D<float> &x, Matrix3D<float> &output) {
     const int num_thread = 16;
     Matrix3D<uint8_t> b = this->weight;
     const int m = x.m_dim_y, n = b.m_dim_y, k = x.m_dim_z, b_size = b.m_dim_x;
@@ -206,16 +206,16 @@ void Linear_FP_int4::forward(const Matrix3D<float> &x, Matrix3D<float> &output) 
     struct matmul_params params;
     params.A.row = x.m_dim_y;
     params.A.column = x.m_dim_z;
-    params.A.data_ptr = x.m_data;
+    params.A.data_ptr = x.data();
     params.B.row = b.m_dim_z;     // k
     params.B.column = b.m_dim_y;  // n
-    params.B.int4_data_ptr = b.m_data;
+    params.B.int4_data_ptr = b.data();
     params.C.row = output.m_dim_y;
     params.C.column = output.m_dim_z;
-    params.C.data_ptr = output.m_data;
+    params.C.data_ptr = output.data();
     params.opt_params.num_thread = num_thread;
-    params.scales = this->scale.m_data;
-    params.offset = this->offset.m_data;
+    params.scales = this->scale.data();
+    params.offset = this->offset.data();
     params.block_size = QK;
 
     matmul::MatmulOperator op = matmul::MatmulOperator();

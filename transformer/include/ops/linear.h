@@ -4,12 +4,12 @@
 class LinearFp32 {
    public:
     LinearFp32(Matrix3D<float> weight_, std::string weight_path) : weight(weight_) {
-        read_to_array((weight_path).c_str(), this->weight.m_data, this->weight.length());
+        read_to_array((weight_path).c_str(), this->weight.data(), this->weight.length());
     };
     LinearFp32(Matrix3D<float> weight_) : weight(weight_) {
     };
     LinearFp32(){};
-    void forward(const Matrix3D<float> &x, Matrix3D<float> &output);
+    void forward(Matrix3D<float> &x, Matrix3D<float> &output);
     Matrix3D<float> weight;
 
     std::string profile_name = "Linear_FP";
@@ -38,7 +38,7 @@ class Linear_FP_int4 {
         zero_point.load((weight_path + "/zero_point_int4.bin").c_str());
     };
     Linear_FP_int4(){};
-    void forward(const Matrix3D<float> &x, Matrix3D<float> &output);
+    void forward(Matrix3D<float> &x, Matrix3D<float> &output);
     void forward_ref(const Matrix3D<float> &x, Matrix3D<float> &output);
     void forward_fast(const Matrix3D<float> &x, Matrix3D<float> &output);
     static void initialize_memory(const int block_size);

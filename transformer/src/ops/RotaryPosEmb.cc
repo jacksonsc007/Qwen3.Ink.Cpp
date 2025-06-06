@@ -3,7 +3,7 @@
 
 float q_buf[4096], k_buf[4096];
 // TODO: optimize this with multithreading
-void RotaryPosEmb::forward(Matrix3D<float> &query, Matrix3D<float> &key,
+void RotaryPosEmb::apply(Matrix3D<float> &query, Matrix3D<float> &key,
                            int start_idx, int len) {
   PROFILE_START(profile_name);
   int num_q_head = query.m_dim_x;

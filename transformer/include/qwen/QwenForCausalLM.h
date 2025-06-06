@@ -4,6 +4,8 @@
 #include <memory>
 #include "QwenDecoder.h"
 #include "QwenOperator.h"
+#include "common.h"
+#include "operators.h"
 
 struct Qwen3ForCausalLM_Input {
     Matrix3D<int> input_ids;
@@ -39,8 +41,8 @@ class Qwen3ForCausalLM {
     Qwen3Model model;
     Qwen_Linear_with_bias_Int4 lm_head;
     std::string profile_name = "Qwen3ForCausalLM";
-    std::shared_ptr<float> lm_head_output;
-    std::shared_ptr<float> lm_head_weight;
+    // Matrix3D<float> lm_head_output;
+    Matrix3D<float> lm_head_weight;
 };
 
 #endif

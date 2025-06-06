@@ -5,15 +5,15 @@
 class RotaryPosEmb
 {
 public:
-    RotaryPosEmb(Matrix3D<float> _cos, Matrix3D<float> _sin, std::string path)
+    RotaryPosEmb(int max_sqlen, int head_dim, std::string path)
     {
-        sin = _sin;
-        cos = _cos;
-        read_to_array((path + "/cos_cached.bin").c_str(), cos.m_data, cos.length());
-        read_to_array((path + "/sin_cached.bin").c_str(), sin.m_data, sin.length());
+        cos = Matrix3D<float>(1, max_sqlen, head_dim);
+        cos.load((path + "/cos_cached.bin").c_str());
+        sin = Matrix3D<float>(1, max_sqlen, head_dim);
+        sin.load((path + "/sin_cached.bin").c_str());
     };
     RotaryPosEmb(){};
-    void forward(Matrix3D<float> &key, Matrix3D<float> &value, int start_idx, int len);
+    void apply(Matrix3D<float> &key, Matrix3D<float> &value, int start_idx, int len);
     Matrix3D<float> cos, sin;
 
 private:

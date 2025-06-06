@@ -23,7 +23,7 @@ void read_to_array(const char* path, T* array, size_t size) {
     infile.read(reinterpret_cast<char*>(array), size * sizeof(T));
 
     if (!infile) {
-        std::cerr << "Error occurred while reading file: " << path << std::endl;
+        std::cerr << "Error occurred while reading file: " << path << " with size " << size << std::endl;
         throw std::runtime_error("File read failed");
     }
 
@@ -278,6 +278,7 @@ template bool check_two_equal<float>(float* array, float* array2, int size);
 template void read_to_array<float>(const char* path, float* array, size_t size);
 template void read_to_array<int32_t>(const char* path, int32_t* array, size_t size);
 template void read_to_array<int8_t>(const char* path, int8_t* array, size_t size);
+template void read_to_array<char>(const char* path, char* array, size_t size);
 template void read_to_array<uint8_t>(const char* path, uint8_t* array, size_t size);
 template void allocate_aligned_memory(float*& ptr, size_t size);
 template void allocate_aligned_memory(int*& ptr, size_t size);

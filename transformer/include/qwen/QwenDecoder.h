@@ -34,15 +34,13 @@ class Qwen3Model {
 public:
     // member
     int voc_size, hidden_dim, num_heads, num_layers, max_sqlen, bs;
-    Embedding wte;
     Qwen3RMSNorm output_norm;
     std::vector<Qwen3DecoderLayer> layers;
     std::string profile_name = "Qwen3Model";
     float* last_hidden_states_buf;
-    std::shared_ptr<float> wte_weight_ptr;
-    std::shared_ptr<float> output_norm_ptr;
-    std::shared_ptr<float> hidden_embed_ptr;
-    std::shared_ptr<float> attention_mask_buf;
+
+    Embedding wte;
+
     // the directory of weights
     std::string param_path;
 
