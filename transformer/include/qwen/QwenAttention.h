@@ -52,6 +52,7 @@ public:
     RotaryPosEmb rope_embed;
     BMM_F32T qk_bmm, pv_bmm;
     std::string profile_name = "Qwen3Attention";
+    std::string forward_profile_name;
 
     // method
     static void initialize_memory(const struct qwen3_config config);

@@ -80,21 +80,29 @@ Qwen3DecoderLayer::Qwen3DecoderLayer(std::string param_path, const struct qwen3_
 
 Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Input &input)
 {
-    PROFILE_START(profile_name);
-    PROFILE_START(profile_name + "::input layernorm");
+    int bs = input.hidden_states_arr.m_dim_x;
+    int sqlen = input.hidden_states_arr.m_dim_y;
+    int embed_dim = input.hidden_states_arr.m_dim_z;
+    if (sqlen > 1)
+    {
+        forward_profile_name = "[ P Stage ]: " + profile_name;
+    }
+    else {
+        forward_profile_name = "[ AG Stage ]: " + profile_name;
+
+    }
+    PROFILE_START(forward_profile_name);
+    PROFILE_START(forward_profile_name + "::input layernorm");
     // -----------------------------
     // 1st stage: layernorm
     // -----------------------------
-    int bs = input.hidden_states_arr.m_dim_x;
-    int sq_len = input.hidden_states_arr.m_dim_y;
-    int embed_dim = input.hidden_states_arr.m_dim_z;
     Matrix3D<float> hidden_states = input_layernorm.forward(input.hidden_states_arr);
-    PROFILE_END(profile_name + "::input layernorm");
+    PROFILE_END(forward_profile_name + "::input layernorm");
 
     // -----------------------------
     // 2nd stage: attention + residual addition
     // -----------------------------
-    PROFILE_START(profile_name + "::self-attention");
+    PROFILE_START(forward_profile_name + "::self-attention");
     Qwen3Attention_Input attn_param(
         hidden_states,
         input.attention_mask,
@@ -105,21 +113,21 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     );
     Qwen3Attention_Output attn_output = this->attn.forward(attn_param);
     Matrix3D<float> residual_out =  add(input.hidden_states_arr, attn_output.attn_output);
-    PROFILE_END(profile_name + "::self-attention");
+    PROFILE_END(forward_profile_name + "::self-attention");
 
     // -----------------------------
     // 3rd stage: post-attention layernorm
     // -----------------------------
-    PROFILE_START(profile_name + "::post attention layer norm");
+    PROFILE_START(forward_profile_name + "::post attention layer norm");
     Matrix3D<float> post_attn_layernorm_out = post_attention_layernorm.forward(residual_out);
-    PROFILE_END(profile_name + "::post attention layer norm");
+    PROFILE_END(forward_profile_name + "::post attention layer norm");
 
     // -----------------------------
     // 4th stage: MLP stage 
     // NOTE: This implementation differs from Qwen.cpp
     // -----------------------------
     // Gate proj: embed_dim -> hidden_dim
-    PROFILE_START(profile_name + "::mlp");
+    PROFILE_START(forward_profile_name + "::mlp");
     Matrix3D<float> gate_proj_output = gate_proj.forward(post_attn_layernorm_out);
     // up proj: embed_dim -> hidden_dim
     Matrix3D<float> up_proj_output = up_proj.forward(post_attn_layernorm_out);
@@ -128,7 +136,7 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     // down proj: hidden_dim -> embedding
     Matrix3D<float> down_proj_output = down_proj.forward(gate_proj_output);
     residual_out = add(residual_out, down_proj_output);
-    PROFILE_END(profile_name + "::mlp");
+    PROFILE_END(forward_profile_name + "::mlp");
     IF_DEBUG_DECODER_LAYER(
         printf("\e[31m[INFO]\e[m decoder layer statistics: \n");
         post_attn_layernorm_out.statistics();
@@ -139,6 +147,6 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     );
     struct Qwen3DecoderLayer_Output output(residual_out, attn_output.attn_probs_reshaped,
                                                attn_output.past_key_value);
-    PROFILE_END(profile_name);
+    PROFILE_END(forward_profile_name);
     return output;
 }

@@ -52,17 +52,22 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
         
         if (has_past_kv)
         {
+            PROFILE_START("[ P Stage ]");
             assert (sqlen == 1);
             Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
             model_input = {input_ids_mat, past_keys, past_values};
+            model_output = model->forward(model_input);
+            PROFILE_END("[ P Stage ]");
         }
         else
         {
+            PROFILE_START("[ AR Stage ]");
             sqlen = input_ids.size();
             Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
             model_input = {input_ids_mat};
+            model_output = model->forward(model_input);
+            PROFILE_END("[ AR Stage ]");
         }
-        model_output = model->forward(model_input);
         past_keys = model_output.past_keys;
         past_values = model_output.past_values;
         // we only need the logit of last token
@@ -72,6 +77,7 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
     // ===========================
     // Stage3: Sampling strategy
     // ===========================
+        PROFILE_START("[ Sampling ]");
         std::vector<token_data> candidates; 
         candidates.reserve(vocab_size);
         for (int token_id = 0; token_id < vocab_size; token_id++)
@@ -129,6 +135,7 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
                 next_token_id = sample_token(&candidiate_p); // random sample as per probability
             }
         }
+        PROFILE_END("[ Sampling ]");
         //  checks if the generated token is the end-of-sequence (EOS)
         // TODO: Qwen use distinct tokens from LLama
         if (next_token_id == config.eos_token_id)

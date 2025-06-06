@@ -36,7 +36,7 @@ class Profiler {
     }
 
     void report_internal() const {
-        std::cout << std::left << std::setw(60) << "Section" 
+        std::cout << std::left << std::setw(80) << "Section" 
                   << std::setw(30) << "Total time(ms)" 
                   << std::setw(30) << "Average time(ms)" 
                   << std::setw(30) << "Count" 
@@ -45,7 +45,7 @@ class Profiler {
                   << std::endl;
 
         for (const auto& entry : durations) {
-            std::cout << std::left << std::setw(60) << entry.first 
+            std::cout << std::left << std::setw(80) << entry.first 
                       << std::setw(30) << std::fixed << std::setprecision(2) << (float)(entry.second) / 1000 
                       << std::setw(30) << std::fixed << std::setprecision(2) << (float)(entry.second / counts.at(entry.first)) / 1000 
                       << std::setw(30) << counts.at(entry.first);

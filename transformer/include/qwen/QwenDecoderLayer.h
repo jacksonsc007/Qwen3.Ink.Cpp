@@ -51,6 +51,7 @@ public:
     Qwen_Linear_with_bias_Int4 gate_proj, down_proj, up_proj;
 
     std::string profile_name = "Qwen3DecoderLayer";
+    std::string forward_profile_name;
     
     // method
     Qwen3DecoderLayer() = default;

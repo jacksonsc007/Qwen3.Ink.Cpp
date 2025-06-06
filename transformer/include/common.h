@@ -160,24 +160,31 @@ public:
     }
     
     // exchange dimension 0 and 1
-    Matrix3D permute01()
-    {
+    Matrix3D permute01() {
         PROFILE_START("QwenAttention::permute");
-        int dim_x_before = m_dim_x;
-        int dim_y_before = m_dim_y;
-        int dim_z_before = m_dim_z;
-        Matrix3D after(dim_y_before, dim_x_before, dim_z_before);
-        int dim_x = after.m_dim_x;
-        int dim_y = after.m_dim_y;
-        int dim_z = after.m_dim_z;
+        const int dim_x = m_dim_y;  // Swapped dimensions
+        const int dim_y = m_dim_x;
+        const int dim_z = m_dim_z;
+        Matrix3D after(dim_x, dim_y, dim_z);
         
-        for (int i = 0; i < dim_x; i++)
-            for (int j = 0; j < dim_y; j++)
-                for (int k = 0; k < dim_z; k++)
-                {
-                    // shaped[i, j, k] = unshape[0, j, i * head_dim + k]
-                    after(i, j, k) = (*this)(j, i, k);
-                }
+        const int outer_stride = m_dim_y * m_dim_z;
+        const int inner_stride = m_dim_z;
+        
+        T* dest_ptr = after.m_data.get();
+        const T* src_ptr = this->m_data.get();
+        
+        for (int i = 0; i < dim_x; i++) {
+            for (int j = 0; j < dim_y; j++) {
+                // Contiguous memory copy for the innermost dimension
+                const int src_offset = j * outer_stride + i * inner_stride;
+                const int dest_offset = i * dim_y * dim_z + j * dim_z;
+                
+                std::copy(src_ptr + src_offset,
+                         src_ptr + src_offset + dim_z,
+                         dest_ptr + dest_offset);
+            }
+        }
+        
         PROFILE_END("QwenAttention::permute");
         return after;
     }
@@ -212,7 +219,6 @@ public:
         return static_cast<size_t>(m_dim_x) * m_dim_y * m_dim_z;
     }
 
-    // Repeat along specified dimension
     Matrix3D repeat(int dim, int times) const {
         if (dim < 0 || dim > 2) {
             throw std::invalid_argument("Dimension must be 0 (x), 1 (y), or 2 (z)");
@@ -227,20 +233,46 @@ public:
         int new_dim_z = (dim == 2) ? m_dim_z * times : m_dim_z;
 
         Matrix3D result(new_dim_x, new_dim_y, new_dim_z);
-        
-        // Fill the new matrix
-        for (int x = 0; x < new_dim_x; ++x) {
-            for (int y = 0; y < new_dim_y; ++y) {
-                for (int z = 0; z < new_dim_z; ++z) {
-                    // Calculate original coordinates
-                    int orig_x = (dim == 0) ? x / times : x;
-                    int orig_y = (dim == 1) ? y / times : y;
-                    int orig_z = (dim == 2) ? z / times : z;
-                    
-                    result(x, y, z) = (*this)(orig_x, orig_y, orig_z);
+
+        // Optimize based on which dimension we're repeating
+        if (dim == 0) {
+            // Repeat along X dimension (most contiguous in memory)
+            const int block_size = m_dim_y * m_dim_z;
+            for (int orig_x = 0; orig_x < m_dim_x; ++orig_x) {
+                const T* src_block = &(*this)(orig_x, 0, 0);
+                for (int t = 0; t < times; ++t) {
+                    T* dest_block = &result(orig_x * times + t, 0, 0);
+                    std::copy(src_block, src_block + block_size, dest_block);
                 }
             }
         }
+        else if (dim == 1) {
+            // Repeat along Y dimension
+            for (int x = 0; x < m_dim_x; ++x) {
+                for (int orig_y = 0; orig_y < m_dim_y; ++orig_y) {
+                    for (int z = 0; z < m_dim_z; ++z) {
+                        const T val = (*this)(x, orig_y, z);
+                        for (int t = 0; t < times; ++t) {
+                            result(x, orig_y * times + t, z) = val;
+                        }
+                    }
+                }
+            }
+        }
+        else { // dim == 2
+            // Repeat along Z dimension
+            for (int x = 0; x < m_dim_x; ++x) {
+                for (int y = 0; y < m_dim_y; ++y) {
+                    const T* src_row = &(*this)(x, y, 0);
+                    for (int orig_z = 0; orig_z < m_dim_z; ++orig_z) {
+                        const T val = src_row[orig_z];
+                        T* dest = &result(x, y, orig_z * times);
+                        std::fill(dest, dest + times, val);
+                    }
+                }
+            }
+        }
+
         return result;
     }
 
