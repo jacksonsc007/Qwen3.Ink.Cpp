@@ -1,9 +1,9 @@
-#include "Generate.h"
-
+#include "Pipeline.h"
 #include "common.h"
 #include "utils.h"
 
-void sample_repetition_penalty(token_data_array* candidates, const int* last_tokens, size_t last_tokens_size,
+// Static sampling methods
+void Pipeline::sample_repetition_penalty(token_data_array* candidates, const int* last_tokens, size_t last_tokens_size,
                                float penalty) {
     if (last_tokens_size == 0 || penalty == 1.0f) {
         return;
@@ -25,7 +25,7 @@ void sample_repetition_penalty(token_data_array* candidates, const int* last_tok
     candidates->sorted = false;
 }
 
-void sample_frequency_and_presence_penalties(token_data_array* candidates, const int* last_tokens_p,
+void Pipeline::sample_frequency_and_presence_penalties(token_data_array* candidates, const int* last_tokens_p,
                                              size_t last_tokens_size, float alpha_frequency, float alpha_presence) {
     if (last_tokens_size == 0 || (alpha_frequency == 0.0f && alpha_presence == 0.0f)) {
         return;
@@ -51,7 +51,7 @@ void sample_frequency_and_presence_penalties(token_data_array* candidates, const
     candidates->sorted = false;
 }
 
-int sample_token_greedy(token_data_array* candidates) {
+int Pipeline::sample_token_greedy(token_data_array* candidates) {
     // Find max element
     auto max_iter =
         std::max_element(candidates->data, candidates->data + candidates->size,
@@ -61,16 +61,13 @@ int sample_token_greedy(token_data_array* candidates) {
     return result;
 }
 
-void sample_temperature(token_data_array* candidates_p, float temp) {
+void Pipeline::sample_temperature(token_data_array* candidates_p, float temp) {
     for (size_t i = 0; i < candidates_p->size; ++i) {
         candidates_p->data[i].logit /= temp;
     }
 }
 
-//
-// sampling
-//
-void sample_softmax(token_data_array* candidates) {
+void Pipeline::sample_softmax(token_data_array* candidates) {
     assert(candidates->size > 0);
 
     // Sort the logits in descending order
@@ -92,7 +89,7 @@ void sample_softmax(token_data_array* candidates) {
     }
 }
 
-int sample_token(token_data_array* candidates) {
+int Pipeline::sample_token(token_data_array* candidates) {
     sample_softmax(candidates);
 
     std::vector<float> probs;
@@ -109,7 +106,7 @@ int sample_token(token_data_array* candidates) {
     return result;
 }
 
-void sample_top_k(token_data_array* candidates, int k, size_t min_keep) {
+void Pipeline::sample_top_k(token_data_array* candidates, int k, size_t min_keep) {
     k = std::max(k, (int)min_keep);
     k = std::min(k, (int)candidates->size);
 
@@ -127,7 +124,7 @@ void sample_top_k(token_data_array* candidates, int k, size_t min_keep) {
     candidates->size = k;
 }
 
-int sample_token_mirostat(const int n_vocab, token_data_array* candidates, float tau, float eta, int m, float* mu) {
+int Pipeline::sample_token_mirostat(const int n_vocab, token_data_array* candidates, float tau, float eta, int m, float* mu) {
     auto N = float(n_vocab);
 
     sample_softmax(candidates);
@@ -165,7 +162,7 @@ int sample_token_mirostat(const int n_vocab, token_data_array* candidates, float
     return X;
 }
 
-int sample_token_mirostat_v2(token_data_array* candidates, float tau, float eta, float* mu) {
+int Pipeline::sample_token_mirostat_v2(token_data_array* candidates, float tau, float eta, float* mu) {
     sample_softmax(candidates);
 
     // Truncate the words with surprise values greater than mu
@@ -192,7 +189,7 @@ int sample_token_mirostat_v2(token_data_array* candidates, float tau, float eta,
     return X;
 }
 
-void sample_tail_free(token_data_array* candidates, float z, size_t min_keep) {
+void Pipeline::sample_tail_free(token_data_array* candidates, float z, size_t min_keep) {
     if (z >= 1.0f || candidates->size <= 2) {
         return;
     }
@@ -237,7 +234,7 @@ void sample_tail_free(token_data_array* candidates, float z, size_t min_keep) {
     candidates->size = last_idx;
 }
 
-void sample_typical(token_data_array* candidates, float p, size_t min_keep) {
+void Pipeline::sample_typical(token_data_array* candidates, float p, size_t min_keep) {
     // Reference implementation:
     // https://github.com/huggingface/transformers/compare/main...cimeister:typical-sampling:typical-pr
     if (p >= 1.0f) {
@@ -293,7 +290,7 @@ void sample_typical(token_data_array* candidates, float p, size_t min_keep) {
     candidates->size = new_candidates.size();
 }
 
-void sample_top_p(token_data_array* candidates, float p, size_t min_keep) {
+void Pipeline::sample_top_p(token_data_array* candidates, float p, size_t min_keep) {
     if (p >= 1.0f) {
         return;
     }
@@ -317,3 +314,131 @@ void sample_top_p(token_data_array* candidates, float p, size_t min_keep) {
     // Resize the output vector to keep only the top-p tokens
     candidates->size = last_idx;
 }
+
+// Pipeline class implementation
+Pipeline::Pipeline(void* model_ptr, const std::string& tiktoken_path, bool interactive, const qwen3_config& config)
+    : tokenizer(tiktoken_path, config)
+    , model(static_cast<Qwen3ForCausalLM*>(model_ptr))
+    , config(config)
+    , tiktoken_path(tiktoken_path)
+    , interactive(interactive) {
+}
+
+Pipeline::~Pipeline() {
+    // Note: We don't delete model here as it's owned by the caller
+}
+
+std::vector<int> Pipeline::encode(const std::string& text, int max_length) {
+    return tokenizer.encode(text, max_length);
+}
+
+std::string Pipeline::decode(const std::vector<int>& tokens) {
+    return tokenizer.decode(tokens);
+}
+
+std::vector<int> Pipeline::generate(const std::string& text, const qwen_params& generation_config) {
+    const int32_t max_context_length = generation_config.n_ctx;
+    std::vector<int> last_n_tokens(max_context_length);
+    std::fill(last_n_tokens.begin(), last_n_tokens.end(), 0);
+    std::vector<int> generate_ids;
+
+    const int max_token_length = config.max_sqlen;
+    const int vocab_size = generation_config.n_vocab;
+    std::vector<int> input_ids = encode(text, max_token_length);
+    
+    if (interactive) std::cout << "ASSISTANT: " << std::endl;
+
+    int n_remain = generation_config.n_predict;
+    int stop_generation_tolerance = 2;
+    while (n_remain != 0 && stop_generation_tolerance) {
+        std::vector<float> logits(vocab_size);
+        
+        int sqlen = input_ids.size();
+        std::string PhaseName = (sqlen > 1) ? "[ P Stage ]" : "[ AG Stage ]";
+        PROFILE_START(PhaseName);
+        
+        Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
+        Qwen3ForCausalLM_Input model_input = {input_ids_mat};
+        Qwen3ForCausalLM_Output model_output = model->forward(model_input);
+        PROFILE_END(PhaseName);
+        
+        Matrix3D<float> last_token_logits = model_output.logits;
+        memcpy(logits.data(), last_token_logits.data(), vocab_size*sizeof(float));
+
+        PROFILE_START("[ Sampling ]");
+        std::vector<token_data> candidates;
+        candidates.reserve(vocab_size);
+        for (int token_id = 0; token_id < vocab_size; token_id++) {
+            candidates.emplace_back(token_data{token_id, logits[token_id], 0.0f});
+        }
+        token_data_array candidiate_p = {candidates.data(), candidates.size(), false};
+
+        const int32_t repeat_last_n = generation_config.repeat_last_n < 0 ? max_context_length : generation_config.repeat_last_n;
+        int32_t last_n_repeat = std::min(
+            std::min((int)last_n_tokens.size(), repeat_last_n),
+            max_context_length
+        );
+
+        sample_repetition_penalty(
+            &candidiate_p,
+            last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
+            last_n_repeat,
+            generation_config.repeat_penalty
+        );
+
+        sample_frequency_and_presence_penalties(
+            &candidiate_p,
+            last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
+            last_n_repeat,
+            generation_config.frequency_penalty,
+            generation_config.presence_penalty
+        );
+
+        const float temperature = generation_config.temp;
+        const int mirostat = generation_config.mirostat;
+        int next_token_id = 0;
+
+        if (temperature <= 0) {
+            next_token_id = sample_token_greedy(&candidiate_p);
+        } else {
+            if (mirostat != 0) {
+                printf("\e[31m[INFO]\e[m Not implemented yet.");
+            } else {
+                sample_top_k(&candidiate_p, generation_config.top_k, 1);
+                sample_tail_free(&candidiate_p, generation_config.tfs_z, 1);
+                sample_typical(&candidiate_p, generation_config.typical_p, 1);
+                sample_top_p(&candidiate_p, generation_config.top_p, 1);
+                sample_temperature(&candidiate_p, temperature);
+                next_token_id = sample_token(&candidiate_p);
+            }
+        }
+        PROFILE_END("[ Sampling ]");
+
+        if (next_token_id == config.eos_token_id) {
+            printf("\e[31m[INFO]\e[m EOS detected\n");
+            stop_generation_tolerance--;
+            continue;
+        }
+
+        if (next_token_id == config.pad_token_id) {
+            printf("\e[31m[INFO]\e[m padding token detected\n");
+            continue;
+        }
+        stop_generation_tolerance = 2;
+
+        last_n_tokens.erase(last_n_tokens.begin());
+        last_n_tokens.push_back(next_token_id);
+        generate_ids.push_back(next_token_id);
+        input_ids = std::vector<int>{next_token_id};
+
+        if (interactive) {
+            std::string output_text = decode(input_ids);
+            std::cout << output_text << std::flush;
+        }
+        --n_remain;
+    }
+    if (interactive) std::cout << std::endl;
+    Profiler::getInstance().report_internal();
+    Profiler::getInstance().reset();
+    return generate_ids;
+} 

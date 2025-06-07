@@ -103,13 +103,13 @@ public:
     // Access element with bounds checking and repetition handling
     T& operator()(int x, int y, int z) {
         modify_repetition_index(x, y, z);
-        check_bounds(x, y, z);
+        // check_bounds(x, y, z);
         return m_data[x * stride_x + y * stride_y + z * stride_z];
     }
 
     const T& operator()(int x, int y, int z) const {
         modify_repetition_index(x, y, z);
-        check_bounds(x, y, z);
+        // check_bounds(x, y, z);
         return m_data[x * stride_x + y * stride_y + z * stride_z];
     }
 

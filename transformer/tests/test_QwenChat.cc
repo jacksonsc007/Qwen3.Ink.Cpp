@@ -1,5 +1,5 @@
 #include <cstdint>
-#include "Generate.h"
+#include "Pipeline.h"
 #include "QwenForCausalLM.h"
 #include "QwenOperator.h"
 #include "common.h"
@@ -63,18 +63,20 @@ int main(int argc, char** argv)
         qwen3_config config(bs,max_sqlen);
         Qwen3ForCausalLM model = Qwen3ForCausalLM(model_path, config);
     printf("\e[32m[INFO]\e[m Model Loaded ...\n");
-        std::string tiktoken_path = "qwen-7b-chat/qwen.tiktoken";
+        std::string tiktoken_path = "tokenizers/qwen.tiktoken";
+        
+        Pipeline pipeline(&model, tiktoken_path, true, config);
         
         #ifdef DEBUG
             std::string input = "Give me a short introduction to large language model.";
-            QwenGenerate(&model, input, generation_config, tiktoken_path, true, config);
+            pipeline.generate(input, generation_config);
         #else
         while(true){
             std::cout << "USER: ";
             std::string input;
             std::getline(std::cin, input);
             input = "A chat between a human and an assistant.\n\n### Human: " + input + "\n### Assistant: \n";
-            QwenGenerate(&model, input, generation_config, tiktoken_path, true, config);
+            pipeline.generate(input, generation_config);
 
         }
         #endif

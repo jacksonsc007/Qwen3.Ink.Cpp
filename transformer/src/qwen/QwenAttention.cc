@@ -181,7 +181,10 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // step1: get attention weight
     Matrix3D<float>  attn_weights(num_q_head, sqlen, total_context_sqlen); // shape: (sqlen, final_sqlen)
     // (num_head, sqlen, head_dim) x (num_head, final_sqlen, head_dim) -> (num_head, sqlen, final_sqlen)
+    PROFILE_START(forward_profile_name + "::self-attention :: qk_bmm");
     this->qk_bmm.forward(query_states, k_cache_expanded_view, attn_weights);
+    PROFILE_END(forward_profile_name + "::self-attention :: qk_bmm");
+    PROFILE_START(forward_profile_name + "::self-attention :: batch_add");
     assert(not has_nan(attn_weights));
     // step2: apply causal mask
     batch_Add(attn_weights, input.attention_mask, attn_weights);
@@ -194,22 +197,29 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
         }
     }
     assert(not has_nan(attn_weights));
+    PROFILE_END(forward_profile_name + "::self-attention :: batch_add");
     // step3: apply softmax
     Matrix3D<float> attn_probs(num_q_head, sqlen, total_context_sqlen);
     // TODO: check the softmax implementation. Why find the max value?
+    PROFILE_START(forward_profile_name + "::self-attention :: softmax");
     softmax(attn_weights, attn_probs, 2);
+    PROFILE_END(forward_profile_name + "::self-attention :: softmax");
     
     assert(not has_nan(attn_probs));
 
     // step4: get output
+    PROFILE_START(forward_profile_name + "::self-attention :: pv_bmm");
     Matrix3D<float> attn_output( num_q_head, bs * sqlen, head_dim);
     // TODO: there is a legacy implementation, need to check
     this->pv_bmm.forward_weight_untransposed(attn_probs, v_cache_expanded_view, attn_output);
+    PROFILE_END(forward_profile_name + "::self-attention :: pv_bmm");
     // step5: reshape output: (num_head, sqlen, head_dim) -> (1, sqlen, sqlen * head_dim)
     Matrix3D<float> attn_reshape = attn_output.permute01();
     attn_reshape.view(bs, sqlen, hidden_dim);
     // step6: output projection
+    PROFILE_START(forward_profile_name + "::self-attention :: output_proj");
     Matrix3D<float> attn_output_fp = this->o_proj.forward(attn_reshape);
+    PROFILE_END(forward_profile_name + "::self-attention :: output_proj");
     PROFILE_END(forward_profile_name + "::self-attention");
     // --------------------------------------------------------------
     // Debug

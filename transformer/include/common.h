@@ -297,12 +297,12 @@ public:
     }
 
     T& operator()(int x, int y, int z) {
-        check_indices(x, y, z);
+        // check_indices(x, y, z);
         return m_data[x * m_dim_y * m_dim_z + y * m_dim_z + z];
     }
 
     const T& operator()(int x, int y, int z) const {
-        check_indices(x, y, z);
+        // check_indices(x, y, z);
         return m_data[x * m_dim_y * m_dim_z + y * m_dim_z + z];
     }
 

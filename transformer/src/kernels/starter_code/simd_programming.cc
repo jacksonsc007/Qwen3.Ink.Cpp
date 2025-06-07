@@ -10,8 +10,6 @@
 
 // #define QM_x86
 
-#define QM_x86
-
 #ifdef QM_ARM
 #include <arm_neon.h>
 #endif
