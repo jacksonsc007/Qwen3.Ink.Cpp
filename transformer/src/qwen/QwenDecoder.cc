@@ -1,4 +1,5 @@
 #include "QwenDecoder.h"
+#include "QwenOperator.h"
 #include "common.h"
 #include "utils.h"
 
@@ -19,7 +20,8 @@ void Qwen3Model::prepare_decoder_attention_mask(int length, int past_length, Mat
         }
 } 
 
-Qwen3Model::Qwen3Model(std::string param_path, const struct qwen3_config config){
+Qwen3Model::Qwen3Model(ModelContext* ctx, std::string param_path, const struct qwen3_config config){
+    context_ = ctx;
     // allocate_aligned_memory(attention_mask_buf, sizeof(float) * config.max_sqlen * config.max_sqlen);
     // allocate_aligned_memory(last_hidden_states_buf, sizeof(float) * config.max_sqlen * config.embed_dim);
     voc_size = config.vocsize;
@@ -47,7 +49,7 @@ Qwen3Model::Qwen3Model(std::string param_path, const struct qwen3_config config)
             printf("\e[31m[INFO]\e[m Loading Qwen Block %d...\n", layer_idx);
         );
         std::string path = param_path + "/layers/layer" + std::to_string(layer_idx);
-        Qwen3DecoderLayer layer = Qwen3DecoderLayer(path, config, layer_idx);
+        Qwen3DecoderLayer layer = Qwen3DecoderLayer(ctx, path, config, layer_idx);
         layers.push_back(layer);
     }
 }
@@ -59,7 +61,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     past_sqlen records the total number of processed token length.
     */
     int cur_sqlen = input.input_ids.m_dim_z;
-    int past_sqlen = 0;
+    int past_sqlen = input.past_sqlen;
 
     // ---
     // 1st stage: transform input tokens into embeddings
@@ -67,10 +69,6 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     PROFILE_START(profile_name + "::embedding");
     Matrix3D<float> token_embedding  = wte.forward(input.input_ids);
     PROFILE_END(profile_name + "::embedding");
-    if (input.has_past_keys_values)
-    {
-        past_sqlen = input.past_keys[0].m_dim_x;
-    }
     IF_DEBUG_IO(
         // std::string save_path = "/root/workspace/tinyml/TinyChatEngine/qwen-7b-chat/transformer/activation/input_embeds.bin";
         std::string save_path = param_path + "/activation/token_embedding.bin";
@@ -100,28 +98,9 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
         IF_DEBUG(
             printf("\e[31m[INFO]\e[m evaluating layer %d ... \n", i);
         );
-        if (!input.has_past_keys_values)
-        {
-            struct Qwen3DecoderLayer_Input  layer_input   = {hidden_states, attn_mask};
-            struct Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
-            hidden_states = layer_output.hidden_states;
-            past_keys.push_back(layer_output.past_key_value.first);
-            past_values.push_back(layer_output.past_key_value.second);
-        }
-        else
-        {
-            struct Qwen3DecoderLayer_Input  layer_input = {
-                hidden_states,
-                attn_mask,
-                // pass KV Cache for curent layer
-                input.past_keys[i],
-                input.past_values[i]
-            };
-            struct Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
-            hidden_states = layer_output.hidden_states;
-            past_keys.push_back(layer_output.past_key_value.first);
-            past_values.push_back(layer_output.past_key_value.second);
-        }
+        struct Qwen3DecoderLayer_Input  layer_input   = {hidden_states, attn_mask, past_sqlen};
+        struct Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
+        hidden_states = layer_output.hidden_states;
         
         IF_DEBUG_IO(
              std::ostringstream oss;
@@ -140,19 +119,19 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
         );
     }
     PROFILE_END(profile_name + "::decoder layers");
+
     // ---
     // 4th stage: output layernorm
     // ---
     PROFILE_START(profile_name + "::output layernorm");
     Matrix3D<float> last_hidden_states = output_norm.forward(hidden_states);
     PROFILE_END(profile_name + "::output layernorm");
-
     IF_DEBUG_DECODER(
         printf("\e[31m[INFO]\e[m decoder output: ");
         last_hidden_states.statistics();
     );
 
-    struct Qwen3Model_Output output  = {last_hidden_states, past_keys, past_values}; 
+    struct Qwen3Model_Output output  = {last_hidden_states}; 
     PROFILE_END(this->profile_name);
     return output;
 }

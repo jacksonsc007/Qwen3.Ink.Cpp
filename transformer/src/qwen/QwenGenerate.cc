@@ -15,7 +15,7 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
     std::vector<int> embd; 
     std::vector<int> generate_ids; // return value
 
-    const int max_token_length = 512;
+    const int max_token_length = config.max_sqlen;
     const int vocab_size = generation_config.n_vocab;
     std::vector<int> input_ids(max_token_length);
     // ===========================
@@ -32,51 +32,40 @@ std::vector<int> QwenGenerate(void *model_ptr, std::string text,
     
     if (interactive) std::cout << "ASSISTANT: " << std::endl;
 
-    bool has_past_kv = false;
     bool previous_two_hash = false;
-    std::vector<Matrix3D<float>> past_keys, past_values; // Hold KV Cache
     int n_remain = generation_config.n_predict;
     int stop_generation_tolerance = 2;
     while (n_remain != 0 && stop_generation_tolerance)
     {
         std::vector<float> logits(vocab_size);
         
-        int sqlen = 1;
-
-    // ===========================
-    // Stage2: Model evaluation
-    // ===========================
+        // ===========================
+        // Stage2: Model evaluation
+        // ===========================
         Qwen3ForCausalLM *model = static_cast<Qwen3ForCausalLM *>(model_ptr);
-        Qwen3ForCausalLM_Input model_input;
-        Qwen3ForCausalLM_Output model_output;
         
-        if (has_past_kv)
+        int sqlen = input_ids.size();
+        std::string PhaseName;
+        if (sqlen > 1)
         {
-            PROFILE_START("[ P Stage ]");
-            assert (sqlen == 1);
-            Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
-            model_input = {input_ids_mat, past_keys, past_values};
-            model_output = model->forward(model_input);
-            PROFILE_END("[ P Stage ]");
+            PhaseName = "[ P Stage ]";
         }
-        else
+        else 
         {
-            PROFILE_START("[ AR Stage ]");
-            sqlen = input_ids.size();
-            Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
-            model_input = {input_ids_mat};
-            model_output = model->forward(model_input);
-            PROFILE_END("[ AR Stage ]");
+            PhaseName = "[ AG Stage ]";
         }
-        past_keys = model_output.past_keys;
-        past_values = model_output.past_values;
+        PROFILE_START(PhaseName);
+        Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
+        Qwen3ForCausalLM_Input model_input = {input_ids_mat};
+        Qwen3ForCausalLM_Output model_output = model->forward(model_input);
+        PROFILE_END(PhaseName);
         // we only need the logit of last token
         Matrix3D<float> last_token_logits = model_output.logits;
         memcpy(logits.data(), last_token_logits.data(), vocab_size*sizeof(float));
-        has_past_kv = true;
-    // ===========================
-    // Stage3: Sampling strategy
-    // ===========================
+
+        // ===========================
+        // Stage3: Sampling strategy
+        // ===========================
         PROFILE_START("[ Sampling ]");
         std::vector<token_data> candidates; 
         candidates.reserve(vocab_size);

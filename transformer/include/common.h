@@ -37,7 +37,7 @@
 #endif
 
 #ifdef DEBUG_ATTENTION
-    #define IF_DEBUG_ATTENTION(code) do { code ;} while (0);
+    #define IF_DEBUG_ATTENTION(code) do { code } while (0);
 #else
     #define IF_DEBUG_ATTENTION(code) do { } while (0);
 #endif
@@ -87,8 +87,8 @@ public:
         }
     }
 
-    // Constructor that copies from external data
-    Matrix3D(const T* data, int dim_x, int dim_y, int dim_z) 
+    // Option 1: Safe version that always copies data
+    Matrix3D(const T* data, int dim_x, int dim_y, int dim_z)
         : Matrix3D(dim_x, dim_y, dim_z) 
     {
         if (data && size() > 0) {
@@ -96,10 +96,24 @@ public:
         }
     }
 
+    // Option 2: Separate constructor for external data (NOT RECOMMENDED)
+    // Only use if you absolutely need to wrap external memory
+    Matrix3D(T* external_data, int dim_x, int dim_y, int dim_z, std::false_type /*dummy*/)
+        : m_data(external_data, [](T*){}), // Custom deleter that does nothing
+          m_dim_x(dim_x), m_dim_y(dim_y), m_dim_z(dim_z)
+    {
+        if (!external_data) {
+            throw std::invalid_argument("External data pointer cannot be null");
+        }
+    }
+
     // Copy constructor
     Matrix3D(const Matrix3D<T>& other) 
-        : Matrix3D(other.m_data.get(), other.m_dim_x, other.m_dim_y, other.m_dim_z) 
-    {}
+        : m_dim_x(other.m_dim_x), m_dim_y(other.m_dim_y), m_dim_z(other.m_dim_z)
+    {
+        m_data = std::make_unique<T[]>(other.size());
+        std::copy(other.data(), other.data() + other.size(), m_data.get());
+    }
 
     // Move constructor
     Matrix3D(Matrix3D<T>&& other) noexcept
@@ -146,6 +160,12 @@ public:
         swap(first.m_dim_x, second.m_dim_x);
         swap(first.m_dim_y, second.m_dim_y);
         swap(first.m_dim_z, second.m_dim_z);
+    }
+    
+    Matrix3D bind(T * data, int x, int y, int z)
+    {
+        Matrix3D output;
+        return output;
     }
 
     // concatenate two matrix along x dim
@@ -379,7 +399,7 @@ public:
 
     // Raw data access (use with caution)
     T* data() { return m_data.get(); }
-    // const T* data() const { return m_data.get(); }
+    const T* data() const { return m_data.get(); }
     
     void show(bool verbose = false)
     {

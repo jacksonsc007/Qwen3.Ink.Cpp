@@ -7,7 +7,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_CXX_FLAGS_RELEASE  "-fopenmp -O3  -DQM_x86 -DPROFILER -pthread  -march=native")
-set(CMAKE_CXX_FLAGS_DEBUG  "-fopenmp -O0 -Og -g -DQM_x86 -DPROFILER -DDEBUG -mavx2 -mfma")
+string(JOIN " "
+  CMAKE_CXX_FLAGS_DEBUG
+  "-fopenmp"
+  "-Og"
+  "-g"
+  "-DQM_x86"
+  "-DPROFILER"
+  "-DDEBUG"
+  "-DDEBUG_ATTENTION"
+  "-mavx2"
+  "-mfma"
+)
 
 list(APPEND INCLUDE_DIR 
 ${PROJECT_SOURCE_DIR}/include 

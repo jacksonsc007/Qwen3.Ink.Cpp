@@ -1,6 +1,7 @@
 #ifndef _QWENOPERATOR_H
 #define _QWENOPERATOR_H
 
+#include <cstddef>
 #include <cstdint>
 #include "common.h"
 #include "utils.h"
@@ -10,6 +11,189 @@ void permute01(Matrix3D<float> before, Matrix3D<float> after);
 void reshape_headfirst(Matrix3D<float> before, Matrix3D<float> after);
 void reshape_seqfirst(Matrix3D<float> before, Matrix3D<float> after);
 
+
+
+
+struct ModelContext{
+    std::unique_ptr<float[]> k_cache;
+    std::unique_ptr<float[]> v_cache;
+};
+
+
+
+#include <cassert>
+#include <stdexcept>
+
+template <typename T>
+class MatrixView {
+public:
+    T* m_data;
+    int m_dim_x, m_dim_y, m_dim_z;          // Current dimensions (including repeats)
+    int m_dim_x_original, m_dim_y_original, m_dim_z_original; // Original dimensions
+    int stride_x, stride_y, stride_z;
+    int m_repeat_x, m_repeat_y, m_repeat_z; // Repeat counts per dimension
+    MatrixView()
+    {
+        m_data = NULL;
+        m_dim_x = 0;
+        m_dim_y = 0;
+        m_dim_z = 0;
+        m_dim_x_original = 0;
+        m_dim_y_original = 0;
+        m_dim_z_original = 0;
+        stride_x = 0;
+        stride_y = 0;
+        stride_z = 0;
+        m_repeat_x = 1;
+        m_repeat_y = 1;
+        m_repeat_z = 1;
+    }
+    // Constructor - wraps existing memory with optional strides
+    MatrixView(T* data, int dim_x, int dim_y, int dim_z,
+               int stride_x = 0, int stride_y = 0, int stride_z = 0)
+        : m_data(data),
+          m_dim_x(dim_x), m_dim_y(dim_y), m_dim_z(dim_z),
+          m_dim_x_original(dim_x), m_dim_y_original(dim_y), m_dim_z_original(dim_z),
+          stride_x(stride_x > 0 ? stride_x : dim_y * dim_z),
+          stride_y(stride_y > 0 ? stride_y : dim_z),
+          stride_z(stride_z > 0 ? stride_z : 1),
+          m_repeat_x(1), m_repeat_y(1), m_repeat_z(1)
+    {
+        if (!data) {
+            throw std::invalid_argument("Data pointer cannot be null");
+        }
+        if (dim_x <= 0 || dim_y <= 0 || dim_z <= 0) {
+            throw std::invalid_argument("Dimensions must be positive");
+        }
+    }
+    
+    MatrixView(const MatrixView<T> &other)
+    {
+        m_data = other.m_data;
+        m_dim_x = other.m_dim_x;
+        m_dim_y = other.m_dim_y;
+        m_dim_z = other.m_dim_z;
+        m_dim_x_original = other.m_dim_x_original;
+        m_dim_y_original = other.m_dim_y_original;
+        m_dim_z_original = other.m_dim_z_original;
+        stride_x = other.stride_x;
+        stride_y = other.stride_y;
+        stride_z = other.stride_z;
+        m_repeat_x = other.m_repeat_x;
+        m_repeat_y = other.m_repeat_y;
+        m_repeat_z = other.m_repeat_z;
+    }
+    
+    Matrix3D<T> contiguous()
+    {
+        Matrix3D<T> output(m_dim_x, m_dim_y, m_dim_z);
+        for (int i = 0; i < m_dim_x; i++)
+        {
+            for (int j = 0; j < m_dim_y; j++)
+            {
+                for (int k = 0; k < m_dim_z; k++)
+                {
+                    output(i, j, k) = (*this)(i, j, k);
+                }
+            }
+        }
+        return output;
+    }
+
+    // Access element with bounds checking and repetition handling
+    T& operator()(int x, int y, int z) {
+        modify_repetition_index(x, y, z);
+        check_bounds(x, y, z);
+        return m_data[x * stride_x + y * stride_y + z * stride_z];
+    }
+
+    const T& operator()(int x, int y, int z) const {
+        modify_repetition_index(x, y, z);
+        check_bounds(x, y, z);
+        return m_data[x * stride_x + y * stride_y + z * stride_z];
+    }
+
+    // Create a view with a dimension repeated
+    MatrixView<T> repeat_dimension(int dim, int times) const {
+        if (times <= 0) {
+            throw std::invalid_argument("Repeat times must be positive");
+        }
+
+        MatrixView<T> new_view = *this;
+        switch (dim) {
+            case 0: 
+                new_view.m_dim_x *= times;
+                new_view.m_repeat_x *= times;
+                break;
+            case 1:
+                new_view.m_dim_y *= times;
+                new_view.m_repeat_y *= times;
+                break;
+            case 2:
+                new_view.m_dim_z *= times;
+                new_view.m_repeat_z *= times;
+                break;
+            default:
+                throw std::invalid_argument("Invalid dimension (0=x, 1=y, 2=z)");
+        }
+        return new_view;
+    }
+
+    // Create subview
+    MatrixView<T> subview(int x_start, int x_end,
+                          int y_start, int y_end,
+                          int z_start, int z_end) const {
+        return MatrixView<T>(
+            &(*this)(x_start, y_start, z_start),
+            x_end - x_start,
+            y_end - y_start,
+            z_end - z_start,
+            stride_x,
+            stride_y,
+            stride_z
+        );
+    }
+
+    // Raw data access
+    T* data() { return m_data; }
+    const T* data() const { return m_data; }
+
+    // Dimensions
+    int dim_x() const { return m_dim_x; }
+    int dim_y() const { return m_dim_y; }
+    int dim_z() const { return m_dim_z; }
+
+    // Original dimensions (without repetition)
+    int original_dim_x() const { return m_dim_x_original; }
+    int original_dim_y() const { return m_dim_y_original; }
+    int original_dim_z() const { return m_dim_z_original; }
+
+
+    // Repeat counts
+    int repeat_x() const { return m_repeat_x; }
+    int repeat_y() const { return m_repeat_y; }
+    int repeat_z() const { return m_repeat_z; }
+
+    void modify_repetition_index(int& x, int& y, int& z) const {
+        if (m_repeat_x > 1) x = x / m_repeat_x;
+        if (m_repeat_y > 1) y = y / m_repeat_y;
+        if (m_repeat_z > 1) z = z / m_repeat_z;
+    }
+
+    void check_bounds(int x, int y, int z) const {
+        if (x < 0 || x >= m_dim_x_original ||
+            y < 0 || y >= m_dim_y_original ||
+            z < 0 || z >= m_dim_z_original) {
+            throw std::out_of_range(
+                "MatrixView index (" + std::to_string(x) + "," 
+                + std::to_string(y) + "," + std::to_string(z) 
+                + ") out of bounds for original dimensions ("
+                + std::to_string(m_dim_x_original) + ","
+                + std::to_string(m_dim_y_original) + ","
+                + std::to_string(m_dim_z_original) + ")");
+        }
+    }
+};
 
 class Qwen_Linear_with_bias_Int4 
 {
@@ -85,7 +269,7 @@ class Qwen_Linear_with_bias_Int4
 
     };
     Qwen_Linear_with_bias_Int4(){};
-    Matrix3D<float> forward( Matrix3D<float> &x);
+    Matrix3D<float> forward( Matrix3D<float> &activation);
     // method to evaluate the correctness optimization method
     void forward_reference(const Matrix3D<float> &x, Matrix3D<float> &output);
     void initialize_memory(const int block_size);

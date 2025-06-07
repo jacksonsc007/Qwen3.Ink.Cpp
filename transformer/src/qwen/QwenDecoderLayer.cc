@@ -29,40 +29,32 @@ Matrix3D<T> add(Matrix3D<T> a, Matrix3D<T> b) {
     return result;
 }
 
-Qwen3DecoderLayer::Qwen3DecoderLayer(std::string param_path, const struct qwen3_config config, int layer_idx)
+Qwen3DecoderLayer::Qwen3DecoderLayer(ModelContext * ctx, std::string param_path, const struct qwen3_config config, int layer_idx)
 {
+    context_ptr = ctx;
     this->layer_idx = layer_idx;
     max_sqlen = config.max_sqlen;
     hidden_dim = config.hidden_dim;
-    
-    if (layer_idx == 0)
-    {
-        Qwen3Attention::initialize_memory(config);
-    }
+
     // input layernorm
-    IF_DEBUG(
-        printf("\e[31m[INFO]\e[m Loading input layernorm for Qwen Block %d...\n", layer_idx);
-    );
     this->input_layernorm = Qwen3RMSNorm(hidden_dim);
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading input layernorm for Qwen Block %d...\n", layer_idx););
     input_layernorm.load(param_path + "/input_layernorm/weight.bin");
 
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading post attention layernorm for Qwen Block %d...\n", layer_idx););
     // post attention layernorm
-    IF_DEBUG(
-        printf("\e[31m[INFO]\e[m Loading post attention layernorm for Qwen Block %d...\n", layer_idx);
-    );
     this->post_attention_layernorm = Qwen3RMSNorm(hidden_dim);
     post_attention_layernorm.load(param_path + "/post_attention_layernorm/weight.bin");
 
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading self attention layer for Qwen Block %d...\n", layer_idx););
     // attention module
-    IF_DEBUG(
-        printf("\e[31m[INFO]\e[m Loading self attention layer for Qwen Block %d...\n", layer_idx);
-    );
-    attn = Qwen3Attention(param_path + "/self_attn", config, layer_idx);
+    int layer_stride = config.num_kv_head * max_sqlen * config.head_dim;
+    float * k_cache_space = ctx->k_cache.get() + layer_idx * layer_stride;
+    float * v_cache_space = ctx->v_cache.get() + layer_idx * layer_stride;
+    this -> attn = Qwen3Attention(k_cache_space, v_cache_space, param_path + "/self_attn", config, layer_idx);
 
     // mlp module
-    IF_DEBUG(
-        printf("\e[31m[INFO]\e[m Loading mlp for Qwen Block %d...\n", layer_idx);
-    );
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading mlp for Qwen Block %d...\n", layer_idx););
     this->gate_proj = Qwen_Linear_with_bias_Int4(
         (param_path + "/mlp/gate_proj/"),
         1, mlp_proj_dim, hidden_dim
@@ -106,10 +98,8 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     Qwen3Attention_Input attn_param(
         hidden_states,
         input.attention_mask,
-        input.past_key,
-        input.past_value,
-        input.has_past_key_value,
-        this->layer_idx
+        this->layer_idx,
+        input.past_sqlen
     );
     Qwen3Attention_Output attn_output = this->attn.forward(attn_param);
     Matrix3D<float> residual_out =  add(input.hidden_states_arr, attn_output.attn_output);
@@ -145,8 +135,7 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
         down_proj_output.statistics();
         residual_out.statistics();
     );
-    struct Qwen3DecoderLayer_Output output(residual_out, attn_output.attn_probs_reshaped,
-                                               attn_output.past_key_value);
+    struct Qwen3DecoderLayer_Output output(residual_out, attn_output.attn_probs_reshaped);
     PROFILE_END(forward_profile_name);
     return output;
 }

@@ -1,4 +1,5 @@
 #include "QwenForCausalLM.h"
+#include <memory>
 
 #include "QwenOperator.h"
 #include "common.h"
@@ -15,15 +16,9 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
     // 2nd stage: evaluate decoder
     // -----------------------------
     PROFILE_START(profile_name + "::decoder");
-    if (input.has_past_keys_values) {
-        // autoregressive generation stage
-        struct Qwen3Model_Input decoder_input = {input.input_ids, input.past_keys, input.past_values};
-        decoder_output = this->model.forward(decoder_input);
-    } else {
-        // prompt stage
-        struct Qwen3Model_Input decoder_input = {input.input_ids};
-        decoder_output = this->model.forward(decoder_input);
-    }
+    // autoregressive generation stage
+    struct Qwen3Model_Input decoder_input = {input.input_ids, past_sqlen};
+    decoder_output = this->model.forward(decoder_input);
     PROFILE_END(profile_name + "::decoder");
 
     // -----------------------------
@@ -34,14 +29,10 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
     int sqlen = decoder_output.last_hidden_state.m_dim_y;
     int h_dim = decoder_output.last_hidden_state.m_dim_z;
     ASSERT(bs == 1);
-
     float* last_token_last_h_ptr = &decoder_output.last_hidden_state(0, sqlen - 1, 0);
     Matrix3D<float> last_token_last_h(last_token_last_h_ptr, 1, sqlen, h_dim);
     Matrix3D<float> logits = this->lm_head.forward(last_token_last_h);
     PROFILE_END(profile_name + "::lm_head");
-
-    Qwen3ForCausalLM_Output output = {logits, decoder_output.past_keys, decoder_output.past_values};
-
 #ifdef debug_io
     // -----------------------------
     // Debug
@@ -54,17 +45,36 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
 // exit(1);
 #endif
     PROFILE_END(profile_name);
+    
+    // -----------------------------
+    // 4th stage: Record processed sqlen
+    // -----------------------------
+    int input_sqlen = input.input_ids.size();
+    past_sqlen += input_sqlen;
+
+    Qwen3ForCausalLM_Output output = {logits};
     return output;
 }
 
 Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_config config) {
+    past_sqlen = 0;
     int bs = config.batchsize;
     int h_dim = config.hidden_dim;
     int max_sqlen = config.max_sqlen;
     int vocab_size = config.vocsize;
+    int num_decoder_layer = config.num_layers;
+    int attn_head_dim = config.head_dim;
+    int num_kv_head = config.num_kv_head;
     lm_head_weight = Matrix3D<float>(1, h_dim, vocab_size);
+    
+    // allocate KV cahe considering maximum sequence length
+    size_t cache_size = (
+        num_decoder_layer * max_sqlen * attn_head_dim * num_kv_head
+    );
+    context_.k_cache = std::make_unique<float []>(cache_size);
+    context_.v_cache = std::make_unique<float []>(cache_size);
 
-    this->model = Qwen3Model(param_path + "/model", config);
+    this->model = Qwen3Model(&context_, param_path + "/model", config);
 
     /*
     The linear weights are serialized from PyTorch, which has shape (out_dim, in_dim)

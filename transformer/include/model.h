@@ -7,7 +7,7 @@ struct qwen3_config {
     int num_key_value_heads;
     int num_layers;
     int max_sqlen;
-    int num_q_head, num_k_head;
+    int num_q_head, num_kv_head;
 
     int hidden_dim;
     int head_dim;
@@ -29,7 +29,7 @@ struct qwen3_config {
     {
         vocsize = 151936;
         num_q_head = 32;
-        num_k_head = 8;
+        num_kv_head = 8;
         num_key_value_heads = 8; // GQA
 
         hidden_dim = 4096;

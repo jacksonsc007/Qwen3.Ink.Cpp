@@ -11,26 +11,24 @@
 
 struct Qwen3Model_Output {
     Matrix3D<float> last_hidden_state;
-    std::vector<Matrix3D<float>> past_keys, past_values;
 };
 
 struct Qwen3Model_Input {
     Matrix3D<int> input_ids;
-    std::vector<Matrix3D<float>> past_keys, past_values;
-    bool has_past_keys_values;
+    int past_sqlen;
 
-    Qwen3Model_Input(Matrix3D<int> input_ids_) : input_ids(input_ids_) { has_past_keys_values = false; }
     Qwen3Model_Input(
         Matrix3D<int> input_ids_,
-        std::vector<Matrix3D<float>> past_keys_,
-        std::vector<Matrix3D<float>> past_values_
-    ): input_ids(input_ids_), past_keys(past_keys_), past_values(past_values_) {
-        has_past_keys_values = true;
+        int past_sqlen_
+    ): input_ids(input_ids_), past_sqlen(past_sqlen_)
+    {
+
     }
 };
 
 
 class Qwen3Model {
+    ModelContext * context_;
 public:
     // member
     int voc_size, hidden_dim, num_heads, num_layers, max_sqlen, bs;
@@ -46,7 +44,7 @@ public:
 
     // method
     Qwen3Model() = default;
-    Qwen3Model(std::string param_path, const struct qwen3_config config);
+    Qwen3Model(ModelContext * ctx, std::string param_path, const struct qwen3_config config);
     Qwen3Model_Output forward(const struct Qwen3Model_Input &input);
     void prepare_decoder_attention_mask(int length, int past_length, Matrix3D<float> &);
 
