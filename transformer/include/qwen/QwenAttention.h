@@ -39,7 +39,7 @@ public:
     Qwen_Linear_with_bias_Int4 k_proj, v_proj, q_proj, o_proj;
     Qwen3RMSNorm q_norm, k_norm;
     RotaryPosEmb rope_embed;
-    BMM_F32T qk_bmm, pv_bmm;
+    bgemmGQA qk_bmm, pv_bmm;
     std::string profile_name = "Qwen3Attention";
     std::string forward_profile_name;
 

@@ -53,6 +53,17 @@ set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(third_party/abseil-cpp)
 add_subdirectory(third_party/re2)
 
+option(OPENBLAS "" OFF)
+if(OPENBLAS)
+  add_definitions(-DOPENBLAS)
+  if(NOT DEFINED OPENBLAS_PATH)
+    message(FATAL_ERROR "Specify OpenBLAS path!")
+  endif()
+  include_directories("${OPENBLAS_PATH}")
+  link_directories("${OPENBLAS_PATH}")
+  list(APPEND MATMUL_LIBS -lopenblas)
+endif(OPENBLAS)
+
 # ===
 # Target
 # ===
@@ -61,3 +72,4 @@ add_executable(test ${MAIN_SRCS} ${SRCS} ${SRCS2} ${QWEN_SRCS})
 target_include_directories(test PUBLIC ${INCLUDE_DIR})
 target_include_directories(test PUBLIC ${QWEN_INCLUDE_DIR})
 target_link_libraries(test PUBLIC re2::re2)
+target_link_libraries(test PUBLIC openblas)

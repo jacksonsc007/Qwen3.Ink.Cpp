@@ -7,6 +7,8 @@
 #include "QwenOperator.h"
 #include <cassert>
 #include "operators.h"
+#include <blis/cblas.h>
+#include <cblas.h>
 
 bool has_nan(Matrix3D<float> mat)
 {
@@ -32,44 +34,6 @@ bool has_nan(Matrix3D<float> mat)
     return res;
 }
     
-
-// @abstract: reshape a matrix of shape (1, sqlen, embed_dim) to shape (num_head, sqlen, head_dim)
-void reshape_headfirst(Matrix3D<float> before, Matrix3D<float> after)
-{
-    PROFILE_START("QwenAttention::reshape_headfirst");
-    int num_heads = after.m_dim_x;
-    int sqlen = after.m_dim_y;
-    int head_dim = after.m_dim_z;
-    
-    for (int i = 0; i < num_heads; i++)
-        for (int j = 0; j < sqlen; j++)
-            for (int k = 0; k < head_dim; k++)
-            {
-                // shaped[i, j, k] = unshape[0, j, i * head_dim + k]
-                after(i, j, k) = before(0, j, i * head_dim + k);
-            }
-    PROFILE_END("QwenAttention::reshape_headfirst");
-}
-
-// @abstract: reshape a matrix of shape (num_head, sqlen, head_dim) to (1, sqlen, embed_dim)
-void reshape_seqfirst(Matrix3D<float> before, Matrix3D<float> after)
-{
-    PROFILE_START("QwenAttention::reshape_seqfirst");
-    
-    int num_heads = before.m_dim_x;
-    int sqlen = before.m_dim_y;
-    int head_dim = before.m_dim_z;
-    for (int i = 0; i < num_heads; i++)
-        for (int j = 0; j < sqlen; j++)
-            for (int k = 0; k < head_dim; k++)
-            {
-               // shape2[0, j, i * head_dim + k] = shape1[i, j, k]
-               after(0, j, i * head_dim + k) = before(i, j, k);
-
-            }
-    PROFILE_END("QwenAttention::reshape_seqfirst");
-}
-
 
 void Qwen3RMSNorm::load(std::string path)
 {
@@ -191,4 +155,315 @@ Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation)
 
     PROFILE_END(formatted_profile_name);
     return output;
+}
+
+void load_BMM_F32T(bgemmGQA &op, std::string prefix) { 
+    read_to_array((prefix + "/alpha.bin").c_str(), &op.alpha, 1); 
+}
+
+bgemmGQA::bgemmGQA(float _alpha, int num_q_head, int num_kv_head) { 
+    this->alpha = _alpha; 
+    groupsize = num_q_head / num_kv_head;
+}
+
+void bgemmGQA::forward(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
+    const int m = A.m_dim_y, n = B.m_dim_y, k = A.m_dim_z, bs = A.m_dim_x;
+    const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
+    std::ostringstream oss;
+    std::string PhaseName;
+    if (m > 1)
+    {
+        PhaseName = "P Stage";
+    }
+    else {
+        PhaseName = "AG Stage";
+    }
+    oss << "[ " << PhaseName << "-qk-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    // oss << "[ " << PhaseName << "-qk-" << profile_name << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    // a: bs x m x k   key_view: bs x n x k   c: bs x m x n
+    assert(A.m_dim_x == groupsize * B.m_dim_x);  // batch dim
+    assert(A.m_dim_z == B.m_dim_z);  // k
+    assert(A.m_dim_y == output.m_dim_y);  // m
+    assert(B.m_dim_y == output.m_dim_z);  // n
+    // 
+    int n_heads = bs;
+    for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+    {
+        for (int i = 0; i < m; i++)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                float acc = 0;
+                for (int p = 0; p < k; p++)
+                {
+                    acc += (
+                        A(head_idx, i, p) * B(head_idx / groupsize, j, p)
+                    );
+                }
+                output(head_idx, i, j) = acc * this->alpha;
+            }
+        }
+    }
+
+    PROFILE_END(formatted_profile_name);
+}
+void bgemmGQA::forward_openblas_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
+    int bs = A.m_dim_x;
+    int m = A.m_dim_y;
+    int n = B.m_dim_y;
+    int k = A.m_dim_z;
+    const int groupsize = this->groupsize;
+
+    // Total FLOPS for profiling
+    const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
+    std::ostringstream oss;
+    std::string PhaseName;
+    if (m > 1) {
+        PhaseName = "P Stage";
+    } else {
+        PhaseName = "AG Stage";
+    }
+    // oss << "[ " << PhaseName << "-qk-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    oss << "[ " << PhaseName << "-qk-" << profile_name << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    // Setup arrays for batched GEMM
+    CBLAS_TRANSPOSE transA = CblasNoTrans;
+    CBLAS_TRANSPOSE transB = CblasTrans;  // B is of shape (n, k), so transpose to (k x n)
+
+    const float alpha = this->alpha;
+    const float beta = 0.0f;  // We don't reuse output
+
+    // Prepare array of pointers to A, B, and C matrices
+    float **A_pointers = new float*[bs];
+    float **B_pointers = new float*[bs];
+    float **C_pointers = new float*[bs];
+
+    int lda = k;  // A is m x k, row-major
+    int ldb = k;  // B is n x k, row-major, but we transpose it
+    int ldc = n;  // C is m x n, row-major
+
+    // Populate pointers
+    for (int i = 0; i < bs; ++i) {
+        A_pointers[i] = A.data() + i * m * k;
+
+        // Each group shares B matrices
+        int b_index = i / groupsize;
+        // NOTE: memory layout is not contiguous inside matrixview
+        // B_pointers[i] = B.data() + b_index * n * k;
+        B_pointers[i] = &B(b_index, 0, 0);
+
+        C_pointers[i] = output.data() + i * m * n;
+    }
+    if (m > 1)
+    {
+        // Batched GEMM call
+        cblas_sgemm_batch(
+            CblasRowMajor,
+            &transA, &transB,
+            &m, &n, &k,
+            &alpha,
+            (const float**)A_pointers, &lda,
+            (const float**)B_pointers, &ldb,
+            &beta,
+            C_pointers, &ldc,
+            1, &bs
+        );
+    }
+    else
+    {
+        // Loop over all batches
+        // A: (bs, 1, k) or (bs, k, 1)
+        // B: (bs, n, k)
+        // Perform gemv of B * A
+        for (int i = 0; i < bs; ++i) {
+            float* a = A_pointers[i];
+            float* b_matrix = B_pointers[i];
+            // Output scalar for this batch
+            float* c = C_pointers[i];
+
+            // Perform dot product between A[i] and each row of B[b_index]
+            // This is equivalent to: cblas_sgemv with transposed B
+            cblas_sgemv( 
+                CblasRowMajor,
+                CblasNoTrans,      // B^T * A
+                n,                    // Number of rows in B
+                k,                    // Number of cols in B
+                alpha,             // alpha
+                b_matrix,             // B matrix
+                k,                  // leading dimension of B (cols)  
+                a,                    // A vector (length n)
+                1,                 // stride
+                beta,              // beta
+                c,                    // result scalar
+                1                  // stride
+            );
+        }
+    }
+
+    delete[] A_pointers;
+    delete[] B_pointers;
+    delete[] C_pointers;
+
+    PROFILE_END(formatted_profile_name);
+}
+
+void bgemmGQA::forward_openblas_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
+    int bs = A.m_dim_x;
+    int m = A.m_dim_y;
+    int k = A.m_dim_z;
+    int n = B.m_dim_z;
+    const int groupsize = this->groupsize;
+
+    // Total FLOPS for profiling
+    const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
+    std::ostringstream oss;
+    std::string PhaseName;
+    if (m > 1) {
+        PhaseName = "P Stage";
+    } else {
+        PhaseName = "AG Stage";
+    }
+    // oss << "[ " << PhaseName << "-pv-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    // Setup arrays for batched GEMM
+    CBLAS_TRANSPOSE transA = CblasNoTrans;
+    CBLAS_TRANSPOSE transB = CblasNoTrans;  // B is of shape (k, n), so No need to transpose
+
+    const float alpha = 1;
+    const float beta = 0.0f;  // We don't reuse output
+
+    // Prepare array of pointers to A, B, and C matrices
+    float **A_pointers = new float*[bs];
+    float **B_pointers = new float*[bs];
+    float **C_pointers = new float*[bs];
+    // Populate pointers
+    for (int i = 0; i < bs; ++i) {
+        A_pointers[i] = A.data() + i * m * k;
+
+        // Each group shares B matrices
+        int b_index = i / groupsize;
+        // NOTE: memory layout is not contiguous inside matrixview
+        // B_pointers[i] = B.data() + b_index * n * k;
+        B_pointers[i] = &B(b_index, 0, 0);
+
+        C_pointers[i] = output.data() + i * m * n;
+    }
+    // batched-gemm
+    if (m > 1)
+    {
+
+        int lda = k;  // A is m x k, row-major
+        int ldb = n;  // B is k x n, row-major
+        int ldc = n;  // C is m x n, row-major
+        // Batched GEMM call
+        cblas_sgemm_batch(
+            CblasRowMajor,
+            &transA, &transB,
+            &m, &n, &k,
+            &alpha,
+            (const float**)A_pointers, &lda,
+            (const float**)B_pointers, &ldb,
+            &beta,
+            C_pointers, &ldc,
+            1, &bs
+        );
+    }
+    // batched-gemv
+    else{
+        // Loop over all batchesm * k
+        // A: (bs, m=1, k) = (bs, 1, k)
+        // B: row-major (bs, k, n); View as column-major (bs, n, k)
+        for (int i = 0; i < bs; ++i) {
+            float* a = A_pointers[i];
+            float* b_matrix = B_pointers[i];
+            // Output scalar for this batch
+            float* c = C_pointers[i];
+
+            // Perform dot product between A[i] and each row of B[b_index]
+            // This is equivalent to: cblas_sgemv with transposed B
+            cblas_sgemv( 
+                CblasColMajor,
+                CblasNoTrans,      // B^T * A
+                n,                    // Number of rows in B
+                k,                    // Number of cols in B
+                alpha,             // alpha
+                b_matrix,             // B matrix
+                n,                  // leading dimension of B (cols)  
+                a,                    // A vector (length n)
+                1,                 // stride
+                beta,              // beta
+                c,                    // result scalar
+                1                  // stride
+            );
+        }
+    }
+    delete[] A_pointers;
+    delete[] B_pointers;
+    delete[] C_pointers;
+    PROFILE_END(formatted_profile_name);
+}
+
+void bgemmGQA::forward_weight_untransposed(Matrix3D<float> &A, MatrixView<float> &B,
+                                           Matrix3D<float> &output) {
+    const int m = A.m_dim_y, n = output.m_dim_z, k = A.m_dim_z, bs = A.m_dim_x;
+    const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
+    std::ostringstream oss;
+    std::string PhaseName;
+    if (m > 1)
+    {
+        PhaseName = "P Stage";
+    }
+    else {
+        PhaseName = "AG Stage";
+    }
+    oss << "[ " << PhaseName << "-pv-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    // oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    // a: bs x m x k   b: bs x k x n   c: bs x m x n
+    assert(A.m_dim_x == groupsize * B.m_dim_x);  // batch dim
+    assert(A.m_dim_z == B.m_dim_y);  // k
+    assert(A.m_dim_y == output.m_dim_y);  // m
+    assert(B.m_dim_z == output.m_dim_z);  // n
+
+    // zero out output
+    for (int i = 0; i < output.length(); i++)
+    {
+        output.data()[i] = 0;
+    }
+
+    for (int batch_idx = 0; batch_idx < bs; batch_idx ++)
+    {
+        for (int i = 0; i < m; i++)
+        {
+            for (int p = 0; p < k; p++)
+            {
+                for (int j = 0; j < n; j++)
+                {
+                    output(batch_idx, i, j) += (
+                        A(batch_idx, i, p) * B(batch_idx / groupsize, p, j)
+                    );
+                }
+            }
+        }
+    }
+
+    // apply alpha
+    if (this -> alpha != 1)
+    {
+        for (int i = 0; i < output.length(); i++)
+        {
+            output.data()[i] *= this->alpha;
+        }
+    }
+    PROFILE_END(formatted_profile_name);
 }

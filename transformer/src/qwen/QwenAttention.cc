@@ -58,8 +58,8 @@ Qwen3Attention::Qwen3Attention(float * k_cache_space_, float * v_cache_space_, s
     // scaling factor
     float qk_bmm_alpha;
     read_to_array((param_path + "/scaling.bin").c_str(), &qk_bmm_alpha, 1);
-    this->qk_bmm = BMM_F32T(qk_bmm_alpha);
-    this->pv_bmm = BMM_F32T(1.0f);
+    this->qk_bmm = bgemmGQA(qk_bmm_alpha, num_q_head, num_kv_head);
+    this->pv_bmm = bgemmGQA(1.0f, num_q_head, num_kv_head);
 
 }
 
@@ -182,7 +182,8 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     Matrix3D<float>  attn_weights(num_q_head, sqlen, total_context_sqlen); // shape: (sqlen, final_sqlen)
     // (num_head, sqlen, head_dim) x (num_head, final_sqlen, head_dim) -> (num_head, sqlen, final_sqlen)
     PROFILE_START(forward_profile_name + "::self-attention :: qk_bmm");
-    this->qk_bmm.forward(query_states, k_cache_expanded_view, attn_weights);
+    // this->qk_bmm.forward(query_states, k_cache_view, attn_weights);
+    this->qk_bmm.forward_openblas_qk(query_states, k_cache_view, attn_weights);
     PROFILE_END(forward_profile_name + "::self-attention :: qk_bmm");
     PROFILE_START(forward_profile_name + "::self-attention :: batch_add");
     assert(not has_nan(attn_weights));
@@ -211,7 +212,8 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     PROFILE_START(forward_profile_name + "::self-attention :: pv_bmm");
     Matrix3D<float> attn_output( num_q_head, bs * sqlen, head_dim);
     // TODO: there is a legacy implementation, need to check
-    this->pv_bmm.forward_weight_untransposed(attn_probs, v_cache_expanded_view, attn_output);
+    // this->pv_bmm.forward_weight_untransposed(attn_probs, v_cache_view, attn_output);
+    this->pv_bmm.forward_openblas_pv(attn_probs, v_cache_view, attn_output);
     PROFILE_END(forward_profile_name + "::self-attention :: pv_bmm");
     // step5: reshape output: (num_head, sqlen, head_dim) -> (1, sqlen, sqlen * head_dim)
     Matrix3D<float> attn_reshape = attn_output.permute01();
@@ -225,7 +227,7 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // Debug
     // --------------------------------------------------------------
     IF_DEBUG_ATTENTION(([&] {
-        printf("k cache statrt %p; first value = %f\n", k_cache_space_ptr, *k_cache_space_ptr);
+        printf("k cache statrt %p; first value = %f\n", k_cache_space, *k_cache_space);
         Matrix3D<float> final_key_states_expanded = k_cache_expanded_view.contiguous();
         std::string save_dir = params_path + "/activation/" + std::to_string(past_sqlen) + "/";
         std::vector<std::pair<Matrix3D<float>, std::string>> state_dict{

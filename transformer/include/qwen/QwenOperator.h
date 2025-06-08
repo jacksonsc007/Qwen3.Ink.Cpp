@@ -5,6 +5,8 @@
 #include <cstdint>
 #include "common.h"
 #include "utils.h"
+#include <cassert>
+#include <stdexcept>
 
 bool has_nan(Matrix3D<float> mat);
 void permute01(Matrix3D<float> before, Matrix3D<float> after);
@@ -20,9 +22,6 @@ struct ModelContext{
 };
 
 
-
-#include <cassert>
-#include <stdexcept>
 
 template <typename T>
 class MatrixView {
@@ -102,13 +101,13 @@ public:
 
     // Access element with bounds checking and repetition handling
     T& operator()(int x, int y, int z) {
-        modify_repetition_index(x, y, z);
+        // modify_repetition_index(x, y, z);
         // check_bounds(x, y, z);
         return m_data[x * stride_x + y * stride_y + z * stride_z];
     }
 
     const T& operator()(int x, int y, int z) const {
-        modify_repetition_index(x, y, z);
+        // modify_repetition_index(x, y, z);
         // check_bounds(x, y, z);
         return m_data[x * stride_x + y * stride_y + z * stride_z];
     }
@@ -302,5 +301,21 @@ class Qwen3RMSNorm{
 
 };
 
+class bgemmGQA {
+   public:
+    bgemmGQA(float _alpha, int num_q_head, int num_kv_head);
+    bgemmGQA(){};
+    void forward_openblas_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
+    void forward_openblas_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
+    void forward(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
+    void forward_weight_untransposed(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
+    float alpha;
+    int groupsize;
+
+   private:
+    std::string profile_name = "bgemmGQA";
+};
+
+void load_BMM_F32T(bgemmGQA &op, std::string prefix);
 
 #endif
