@@ -10,29 +10,6 @@
 #include <blis/cblas.h>
 #include <cblas.h>
 
-bool has_nan(Matrix3D<float> mat)
-{
-    bool res = false;
-    int m_dim_x = mat.m_dim_x;
-    int m_dim_y = mat.m_dim_y;
-    int m_dim_z = mat.m_dim_z;
-    for (int i = 0; i < m_dim_x; ++i)
-    {
-        for (int j = 0; j < m_dim_y; ++j)
-        {
-            for (int k = 0; k < m_dim_z; ++k)
-            {
-                float value = mat(i, j, k);
-                if (std::isnan(value))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    
-    return res;
-}
     
 
 void Qwen3RMSNorm::load(std::string path)
@@ -466,4 +443,53 @@ void bgemmGQA::forward_weight_untransposed(Matrix3D<float> &A, MatrixView<float>
         }
     }
     PROFILE_END(formatted_profile_name);
+}
+
+Matrix3D<float> Qwen3SiLuMul(const Matrix3D<float> &a, const Matrix3D<float> &b) {
+    PROFILE_START("SiLuMUL");
+    Matrix3D<float> output = a.as_shape();
+    int len = a.length();
+    float * output_ptr = output.data();
+    const float * a_ptr = a.data();
+    const float * b_ptr = b.data();
+    #pragma omp parallel for simd
+    for (int i = 0; i < len; i++) {
+        float v = a_ptr[i];
+        float silu_v = v * (1.0 / (1.0 + exp(-1 * v)));
+        output_ptr[i] = silu_v * b_ptr[i];
+    }
+    PROFILE_END("SiLuMUL");
+    return output;
+}
+
+Matrix3D<float> add(const Matrix3D<float> a, const Matrix3D<float> b) {
+    assert(a.length() == b.length());
+    Matrix3D result = a.as_shape();
+    for (int i = 0; i < a.length(); i++) {
+        result.data()[i] = a.data()[i] + b.data()[i];
+    }
+    return result;
+}
+
+bool has_nan(Matrix3D<float> mat)
+{
+    bool res = false;
+    int m_dim_x = mat.m_dim_x;
+    int m_dim_y = mat.m_dim_y;
+    int m_dim_z = mat.m_dim_z;
+    for (int i = 0; i < m_dim_x; ++i)
+    {
+        for (int j = 0; j < m_dim_y; ++j)
+        {
+            for (int k = 0; k < m_dim_z; ++k)
+            {
+                float value = mat(i, j, k);
+                if (std::isnan(value))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    return res;
 }

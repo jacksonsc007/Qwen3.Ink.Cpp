@@ -318,4 +318,9 @@ class bgemmGQA {
 
 void load_BMM_F32T(bgemmGQA &op, std::string prefix);
 
+
+Matrix3D<float> Qwen3SiLuMul(const Matrix3D<float> &a, const Matrix3D<float> &b) ;
+
+Matrix3D<float> add(const Matrix3D<float> a, const Matrix3D<float> b) ;
+
 #endif

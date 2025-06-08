@@ -4,30 +4,6 @@
 #include "QwenDecoderLayer.h"
 
 
-// TODO: check this silu
-Matrix3D<float> Qwen3SiLuMul(Matrix3D<float> a, Matrix3D<float> b) {
-    PROFILE_START("SiLuMUL");
-    Matrix3D<float> output = a.as_shape();
-    for (int i = 0; i < a.length(); i++) {
-        float v = a.data()[i];
-        float silu_v = v * (1.0 / (1.0 + exp(-1 * v)));
-        output.data()[i] = silu_v * b.data()[i];
-    }
-    PROFILE_END("SiLuMUL");
-    return output;
-}
-
-template <typename T>
-Matrix3D<T> add(Matrix3D<T> a, Matrix3D<T> b) {
-    PROFILE_START("Fp32QwenDecoderLayer::add");
-    assert(a.length() == b.length());
-    Matrix3D result = a.as_shape();
-    for (int i = 0; i < a.length(); i++) {
-        result.data()[i] = a.data()[i] + b.data()[i];
-    }
-    PROFILE_END("Fp32QwenDecoderLayer::add");
-    return result;
-}
 
 Qwen3DecoderLayer::Qwen3DecoderLayer(ModelContext * ctx, std::string param_path, const struct qwen3_config config, int layer_idx)
 {
@@ -118,14 +94,24 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     // -----------------------------
     // Gate proj: embed_dim -> hidden_dim
     PROFILE_START(forward_profile_name + "::mlp");
+    PROFILE_START(forward_profile_name + "::mlp :: gate_proj");
     Matrix3D<float> gate_proj_output = gate_proj.forward(post_attn_layernorm_out);
+    PROFILE_END(forward_profile_name + "::mlp :: gate_proj");
     // up proj: embed_dim -> hidden_dim
+    PROFILE_START(forward_profile_name + "::mlp :: up_proj");
     Matrix3D<float> up_proj_output = up_proj.forward(post_attn_layernorm_out);
+    PROFILE_END(forward_profile_name + "::mlp :: up_proj");
     // silu
+    PROFILE_START(forward_profile_name + "::mlp :: SiluMul");
     gate_proj_output = Qwen3SiLuMul(gate_proj_output, up_proj_output);
+    PROFILE_END(forward_profile_name + "::mlp :: SiluMul");
     // down proj: hidden_dim -> embedding
+    PROFILE_START(forward_profile_name + "::mlp :: down_proj");
     Matrix3D<float> down_proj_output = down_proj.forward(gate_proj_output);
+    PROFILE_END(forward_profile_name + "::mlp :: down_proj");
+    PROFILE_START(forward_profile_name + "::mlp :: residual");
     residual_out = add(residual_out, down_proj_output);
+    PROFILE_END(forward_profile_name + "::mlp :: residual");
     PROFILE_END(forward_profile_name + "::mlp");
     IF_DEBUG_DECODER_LAYER(
         printf("\e[31m[INFO]\e[m decoder layer statistics: \n");
