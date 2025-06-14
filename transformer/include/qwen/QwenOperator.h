@@ -197,13 +197,6 @@ public:
 class Qwen_Linear_with_bias_Int4 
 {
    public:
-    /**
-     * @brief 构造函数，用于初始化 Qwen_Linear_Int4 对象。
-     *
-     * @param 
-     * @param 
-     * @param 
-     */
     Qwen_Linear_with_bias_Int4(std::string path, int weight_dim_x, int weight_dim_y,int weight_dim_z) 
     {
         uint8_t * weight_arr;
@@ -271,7 +264,7 @@ class Qwen_Linear_with_bias_Int4
     Matrix3D<float> forward( Matrix3D<float> &activation);
     // method to evaluate the correctness optimization method
     void forward_reference(const Matrix3D<float> &x, Matrix3D<float> &output);
-    void initialize_memory(const int block_size);
+    // void initialize_memory(const int block_size);
     // bool check_weight_quantization_error();
     Matrix3D<uint8_t> weight; // each uint8_t contains two int4 weights
     Matrix3D<float> fp32_weight; // for debugging,

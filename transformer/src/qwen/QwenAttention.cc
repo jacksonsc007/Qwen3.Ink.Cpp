@@ -161,8 +161,8 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
         1
     );
     int group_size = num_q_head / num_kv_head;
-    MatrixView<float> k_cache_expanded_view = k_cache_view.repeat_dimension(0, group_size);
-    MatrixView<float> v_cache_expanded_view = v_cache_view.repeat_dimension(0, group_size);
+    // MatrixView<float> k_cache_expanded_view = k_cache_view.repeat_dimension(0, group_size);
+    // MatrixView<float> v_cache_expanded_view = v_cache_view.repeat_dimension(0, group_size);
     // PROFILE_START(forward_profile_name + "::refresh KV Cache :: permute");
     // Matrix3D<float> final_key_states_expanded = entire_key_states.permute01();
     // Matrix3D<float> final_value_states_expanded = entire_value_states.permute01();
@@ -203,7 +203,7 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     Matrix3D<float> attn_probs(num_q_head, sqlen, total_context_sqlen);
     // TODO: check the softmax implementation. Why find the max value?
     PROFILE_START(forward_profile_name + "::self-attention :: softmax");
-    softmax(attn_weights, attn_probs, 2);
+    softmax(attn_weights, attn_probs);
     PROFILE_END(forward_profile_name + "::self-attention :: softmax");
     
     assert(not has_nan(attn_probs));
@@ -228,13 +228,13 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // --------------------------------------------------------------
     IF_DEBUG_ATTENTION(([&] {
         printf("k cache statrt %p; first value = %f\n", k_cache_space, *k_cache_space);
-        Matrix3D<float> final_key_states_expanded = k_cache_expanded_view.contiguous();
+        // Matrix3D<float> final_key_states_expanded = k_cache_expanded_view.contiguous();
         std::string save_dir = params_path + "/activation/" + std::to_string(past_sqlen) + "/";
         std::vector<std::pair<Matrix3D<float>, std::string>> state_dict{
             {query_states, "query_states-gt.bin"},
             {key_states, "key_states-gt.bin"},
             {value_states, "value_states-gt.bin"},
-            {final_key_states_expanded, "final_key_states_expanded-gt.bin"},
+            // {final_key_states_expanded, "final_key_states_expanded-gt.bin"},
             // {final_value_states_expanded, "final_value_states_expanded-gt.bin"},
             {attn_weights, "attn_weights-gt.bin"},
             {attn_output_fp, "attn_output_fp-gt.bin"}

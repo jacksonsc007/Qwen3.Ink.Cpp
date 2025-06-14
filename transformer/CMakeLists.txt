@@ -19,6 +19,8 @@ string(JOIN " "
   "-mavx2"
   "-mfma"
 )
+# disable assert
+# add_compile_definitions(NDEBUG)
 
 list(APPEND INCLUDE_DIR 
 ${PROJECT_SOURCE_DIR}/include 

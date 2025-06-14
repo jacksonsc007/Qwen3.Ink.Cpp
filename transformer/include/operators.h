@@ -22,7 +22,7 @@
 #include "ops/arg_max.h"
 #include "ops/linear.h"
 
-void softmax(const Matrix3D<float> &input, Matrix3D<float> &output, int dim);
+void softmax(const Matrix3D<float> &input, Matrix3D<float> &output);
 void batch_Add(const Matrix3D<float> &input, const Matrix3D<float> &input2, Matrix3D<float> &output);
 template <typename T>
 void linear(Matrix3D<T> &a, Matrix3D<T> &b, Matrix3D<T> &c);

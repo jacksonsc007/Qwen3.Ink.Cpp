@@ -34,7 +34,7 @@ namespace matmul {
 #include "lib.h"
 
 #ifndef NTHREADS
-#define NTHREADS 8
+#define NTHREADS 16
 #endif
 #define OMP_SCHEDULE dynamic
 #define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")

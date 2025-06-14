@@ -30,7 +30,8 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
     int h_dim = decoder_output.last_hidden_state.m_dim_z;
     ASSERT(bs == 1);
     float* last_token_last_h_ptr = &decoder_output.last_hidden_state(0, sqlen - 1, 0);
-    Matrix3D<float> last_token_last_h(last_token_last_h_ptr, 1, sqlen, h_dim);
+    // we only care last token output
+    Matrix3D<float> last_token_last_h(last_token_last_h_ptr, 1, 1, h_dim);
     Matrix3D<float> logits = this->lm_head.forward(last_token_last_h);
     PROFILE_END(profile_name + "::lm_head");
 #ifdef debug_io

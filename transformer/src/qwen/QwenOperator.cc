@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <iomanip>
 
@@ -49,6 +50,13 @@ Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
     return output;
 }
 
+#define BUFFER_SIZE 4096 * 4096 * 16  // 16MB, TO BE REMOVED with better memory allocation!
+static int8_t *x_int8;
+static float *x_scale;
+void initialize_memory(const int block_size) {
+    allocate_aligned_memory(x_int8, BUFFER_SIZE * sizeof(int8_t));
+    allocate_aligned_memory(x_scale, (BUFFER_SIZE / block_size) * sizeof(float));
+}
 
 Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation) {
     const int num_thread = 16;
@@ -89,8 +97,13 @@ Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation)
 
     activation_int8 = Matrix3D<int8_t>(bs, m, k);
     activation_scale = Matrix3D<float>(bs, m, k / QK);
-    params.A.int8_data_ptr = activation_int8.data();
-    params.A_scales = activation_scale.data();
+
+    if (x_int8 == NULL || x_scale == NULL)
+    {
+       initialize_memory(QK);
+    }
+    params.A.int8_data_ptr = x_int8;
+    params.A_scales = x_scale;
 
     matmul::MatmulOperator op = matmul::MatmulOperator();
     // op.matMul_int4_multiThread_qwen(&params);
