@@ -6,6 +6,8 @@
 #include "common.h"
 #include "utils.h"
 #include <cassert>
+#include <cstdio>
+#include <memory>
 #include <stdexcept>
 
 bool has_nan(Matrix3D<float> mat);
@@ -19,6 +21,8 @@ void reshape_seqfirst(Matrix3D<float> before, Matrix3D<float> after);
 struct ModelContext{
     std::unique_ptr<float[]> k_cache;
     std::unique_ptr<float[]> v_cache;
+    std::unique_ptr<int8_t []> repack_buffer; // buffer to load weights before repacking
+    std::unique_ptr<int8_t []> activation_buffer; // buffer to load online-quantized activations in linear layers 
 };
 
 
@@ -153,6 +157,15 @@ public:
         );
     }
 
+    void load(const char* path) 
+    {
+        read_to_array(path, m_data, length() );
+    }
+
+    size_t length() const {
+        return (size_t)m_dim_x * m_dim_y * m_dim_z;
+    }
+
     // Raw data access
     T* data() { return m_data; }
     const T* data() const { return m_data; }
@@ -194,88 +207,147 @@ public:
     }
 };
 
+
+
+struct q4_repack_2x8{
+    float s_low[8];
+    float s_high[8];
+    float min_low[8];
+    float min_high[8];
+    uint8_t q_coupled[256]; // (64 * 8) / (8 / 4)
+};
+
+struct q8_repack_1x2{
+    float s_low;
+    float s_high;
+    float scaled_sum_low;
+    float scaled_sum_high;
+    int8_t q_low[32];
+    int8_t q_high[32];
+};
+
 class Qwen_Linear_with_bias_Int4 
 {
+    // Matrix3D<uint8_t> weight; // each uint8_t contains two int4 weights
+    // Matrix3D<float> fp32_weight; // for debugging,
+    // Matrix3D<float> bias;
+    // Matrix3D<float> scale, offset;
+    // Matrix3D<int8_t> zero_point; // quantization related parameters
+    // Matrix3D<int8_t> activation_int8;
+    // Matrix3D<float> activation_scale;
+    int weight_cols, weight_rows;
+    std::unique_ptr<int8_t []> weight_repack;
+    bool has_bias = false;
+    std::string profile_name = "Qwen_Linear_with_bias_Int4";
+    ModelContext * context_;
+
    public:
-    Qwen_Linear_with_bias_Int4(std::string path, int weight_dim_x, int weight_dim_y,int weight_dim_z) 
+    Qwen_Linear_with_bias_Int4(ModelContext * ctx, std::string path, int weight_dim_x, int weight_dim_y,int weight_dim_z) 
     {
-        uint8_t * weight_arr;
-        float * scale_arr,  * offset_arr;
-        int8_t * zero_point_arr;
+        IF_DEBUG( printf("Constructor Qwen_Linear_with_bias_Int4 ... \n");)
+        context_ = ctx;
         long long weight_size = (long long )weight_dim_x * (long long )weight_dim_y * (long long )weight_dim_z; // total number of weights
         int num_blocks  = weight_size/ QK;
 
-        weight = Matrix3D<uint8_t>(weight_dim_x, weight_dim_y, weight_dim_z / 2);
-        assert (weight_dim_x * weight_dim_y * weight_dim_z / QK  == num_blocks);
-        scale = Matrix3D<float>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
-        offset = Matrix3D<float>(1, 1, 1);
-        zero_point = Matrix3D<int8_t>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
-        
-        weight.load((path     + "weight_int4.bin").c_str());
-        // offset.load((path     + "offset_int4.bin").c_str()); 
-        scale.load((path      + "scaling_factor_int4.bin").c_str());
+        int8_t * weights_buffer = ctx ->repack_buffer.get();
+
+        // Matrix3D<uint8_t> weight = Matrix3D<uint8_t>(weight_dim_x, weight_dim_y, weight_dim_z / 2);
+        // assert (weight_dim_x * weight_dim_y * weight_dim_z / QK  == num_blocks);
+        // Matrix3D<float> scale = Matrix3D<float>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
+        // Matrix3D<float> offset = Matrix3D<float>(1, 1, 1);
+        // Matrix3D<int8_t> zero_point = Matrix3D<int8_t>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
+
+        // Create views into the buffer
+        MatrixView<uint8_t> weight(reinterpret_cast<uint8_t*>(weights_buffer), weight_dim_x, weight_dim_y, weight_dim_z / 2);
+        float * scale_buffer = reinterpret_cast<float*>(weights_buffer + weight_dim_x * weight_dim_y * weight_dim_z / 2);
+        MatrixView<float> scale(scale_buffer, weight_dim_x, weight_dim_y, weight_dim_z / QK);
+        float * offset_buffer = scale_buffer + weight_dim_x * weight_dim_y * weight_dim_z / QK;
+        MatrixView<float> offset(offset_buffer, 1, 1, 1);
+        int8_t * zp_buffer = reinterpret_cast<int8_t *>(offset_buffer + sizeof(float));
+        MatrixView<int8_t> zero_point(zp_buffer, weight_dim_x, weight_dim_y, weight_dim_z / QK);
+
+        // Load data directly from disk into buffer
+        weight.load((path + "weight_int4.bin").c_str());
+        scale.load((path + "scaling_factor_int4.bin").c_str());
         zero_point.load((path + "zero_point_int4.bin").c_str());
+        // Initialize offset to 0
+        *reinterpret_cast<float*>(offset_buffer) = 0.0f;
+
+        int num_repack_blocks = weight_dim_y * weight_dim_z / (QK * 2 * 8);
+        weight_rows = weight_dim_z;
+        weight_cols = weight_dim_y;
+        weight_repack = std::make_unique<int8_t[]>( sizeof(q4_repack_2x8) * num_repack_blocks);
+
+        // repack
+        IF_DEBUG(printf("Repacking weight ... \n");)
+        repack_weight(weight_dim_z, weight_dim_y, QK, weight_repack.get(), scale.data(), weight.data());
+        
+    };
+    
+    void repack_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const uint8_t * B);
+    
+    Qwen_Linear_with_bias_Int4(const Qwen_Linear_with_bias_Int4 &other) {
+        IF_DEBUG(printf("Copy Constructor Qwen_Linear_with_bias_Int4 ...");)
+        weight_rows = other.weight_rows;
+        weight_cols = other.weight_cols;
+        has_bias = other.has_bias;
+        context_ = other.context_;
+        int num_q_blocks = weight_rows * weight_cols / QK;
+        weight_repack = std::make_unique<int8_t[]>(sizeof(q4_repack_2x8) * num_q_blocks );
+        std::copy(other.weight_repack.get(), other.weight_repack.get() + sizeof(q4_repack_2x8) * num_q_blocks, weight_repack.get());
+        IF_DEBUG(printf(" Done!\n");)
+    };
+    
+    Qwen_Linear_with_bias_Int4(Qwen_Linear_with_bias_Int4 &&other)
+    {
+        IF_DEBUG(printf("Move Constructor Qwen_Linear_with_bias_Int4 ...");)
+        weight_rows = other.weight_rows;
+        weight_cols = other.weight_cols;
+        has_bias = other.has_bias;
+        context_ = other.context_;
+        int num_q_blocks = weight_rows * weight_cols / QK;
+        weight_repack = std::move(other.weight_repack);
+        IF_DEBUG(printf(" Done!\n");)
+    }
+    
+    Qwen_Linear_with_bias_Int4& operator=(const Qwen_Linear_with_bias_Int4 &other) {
+        IF_DEBUG(printf("Copy Assignment Qwen_Linear_with_bias_Int4 ...");)
+        if (this == &other) return *this;
+        weight_rows = other.weight_rows;
+        weight_cols = other.weight_cols;
+        has_bias = other.has_bias;
+        context_ = other.context_;
+        int num_q_blocks = weight_rows * weight_cols / QK;
+        weight_repack = std::make_unique<int8_t[]>(sizeof(q4_repack_2x8) * num_q_blocks);
+        std::copy(other.weight_repack.get(), other.weight_repack.get() + sizeof(q4_repack_2x8) * num_q_blocks, weight_repack.get());
+        IF_DEBUG(printf(" Done!\n");)
+        return *this;
+    }
+    
+    Qwen_Linear_with_bias_Int4& operator=(Qwen_Linear_with_bias_Int4 &&other) {
+        IF_DEBUG(printf("Move Assignment Qwen_Linear_with_bias_Int4 ...");)
+        if (this == &other) return *this;
+        weight_rows = other.weight_rows;
+        weight_cols = other.weight_cols;
+        has_bias = other.has_bias;
+        context_ = other.context_;
+        weight_repack = std::move(other.weight_repack);
+        IF_DEBUG(printf(" Done!\n");)
+        return *this;
+    }
+
+    Qwen_Linear_with_bias_Int4(){
+        weight_cols = 0;
+        weight_rows = 0;
         has_bias = false;
-
-        // debugging
-        #ifdef qwen_debug_fp32
-        float * fp32_weight_arr;
-        allocate_aligned_memory(fp32_weight_arr,  weight_size * sizeof(float));
-        fp32_weight = Matrix3D<float>(fp32_weight_arr, weight_dim_x, weight_dim_y, weight_dim_z);
-        fp32_weight.load((path     + "weight_fp32.bin").c_str());
-        #endif
+        weight_repack = nullptr;
     };
 
-    Qwen_Linear_with_bias_Int4(std::string path, int weight_dim_x, int weight_dim_y,int weight_dim_z, 
-                                       int bias_dim_x, int bias_dim_y,int bias_dim_z) 
-    {
-        uint8_t * weight_arr;
-        float * bias_arr;
-        float * scale_arr,  * offset_arr;
-        int8_t * zero_point_arr;
-        long long weight_size = (long long )weight_dim_x * (long long )weight_dim_y * (long long )weight_dim_z; // total number of weights
-        long long bias_size = bias_dim_x * bias_dim_y * bias_dim_z; // total number of bias
-        int num_blocks  = weight_size/ QK;
-
-        weight = Matrix3D<uint8_t>(weight_dim_x, weight_dim_y, weight_dim_z / 2);
-        assert (weight_dim_x * weight_dim_y * weight_dim_z / QK  == num_blocks);
-        bias = Matrix3D<float>(bias_dim_x, bias_dim_y, bias_dim_z);
-        scale = Matrix3D<float>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
-        offset = Matrix3D<float>(1, 1, 1);
-        zero_point = Matrix3D<int8_t>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
-        
-        weight.load((path     + "weight_int4.bin").c_str());
-        bias.load((path       + "bias.bin").c_str()); // TODO: could bias be quantized?
-        // offset.load((path     + "offset_int4.bin").c_str()); 
-        scale.load((path      + "scaling_factor_int4.bin").c_str());
-        zero_point.load((path + "zero_point_int4.bin").c_str());
-        has_bias = true;
-        
-        #ifdef qwen_debug_fp32
-        float * fp32_weight_arr;
-        allocate_aligned_memory(fp32_weight_arr,  weight_size * sizeof(float));
-        fp32_weight = Matrix3D<float>(fp32_weight_arr, weight_dim_x, weight_dim_y, weight_dim_z);
-        fp32_weight.load((path     + "weight_fp32.bin").c_str());
-        #endif
-
-
-    };
-    Qwen_Linear_with_bias_Int4(){};
     Matrix3D<float> forward( Matrix3D<float> &activation);
     // method to evaluate the correctness optimization method
     void forward_reference(const Matrix3D<float> &x, Matrix3D<float> &output);
     // void initialize_memory(const int block_size);
     // bool check_weight_quantization_error();
-    Matrix3D<uint8_t> weight; // each uint8_t contains two int4 weights
-    Matrix3D<float> fp32_weight; // for debugging,
-    Matrix3D<float> bias;
-    Matrix3D<float> scale, offset;
-    Matrix3D<int8_t> zero_point; // quantization related parameters
-    Matrix3D<int8_t> activation_int8;
-    Matrix3D<float> activation_scale;
-    bool has_bias = false;
-
-    std::string profile_name = "Qwen_Linear_with_bias_Int4";
 };
 
 class Qwen3RMSNorm{
@@ -315,5 +387,21 @@ void load_BMM_F32T(bgemmGQA &op, std::string prefix);
 Matrix3D<float> Qwen3SiLuMul(const Matrix3D<float> &a, const Matrix3D<float> &b) ;
 
 Matrix3D<float> add(const Matrix3D<float> a, const Matrix3D<float> b) ;
+
+
+void quantize_row_q8_0_repack(const float * x, void * vy, int64_t k);
+void gemm_repack_A80W40(
+    void * A_repack,
+    void * B_repack,
+    float* C,
+    const int M, const int N, const int K
+);
+void gemv_repack_A80W40(
+    void * A_repack,
+    void * B_repack,
+    float* C,
+    const int M, const int N, const int K
+);
+
 
 #endif

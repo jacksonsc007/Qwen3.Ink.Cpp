@@ -34,20 +34,13 @@ namespace matmul {
 #include "lib.h"
 
 #ifndef NTHREADS
-#define NTHREADS 8
+#define NTHREADS 16
 #endif
 #define OMP_SCHEDULE dynamic
 #define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")
 
 #define MEM_ALIGN 64
 #define Q_BLK_SIZE 32
-#define MR 4
-#define NR 4
-#define MC MR * 11 * NTHREADS
-#define NC NR * 25 * NTHREADS
-// #define MC (6 * (800 / NTHREADS) * NTHREADS)
-// #define NC (16 * (40 / NTHREADS) * NTHREADS)
-#define KC 1024 
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
@@ -62,33 +55,7 @@ namespace matmul {
 #define SB(i, j, ld) (SB + (j) * (ld) + (i))
 #define MinB(i, j, ld) (MinB + (j) * (ld) + (i))
 
-// TODO: Design store pattern that is friendly to the access pattern of int8 weight and activation?
 
-// blockA: packed. row-major.      (MR, KC)
-// blockB: packed. column-major.   (KC, NR)
-// blockSA: packed. row-major.     (MR, KC/Q_BLK_SIZE)
-// blockSB: packed. column-major.  (KC/Q_BLK_SIZE, NR)
-#define blockA(i, j, ld) ( blockA  + (i) * (ld) + (j) )
-#define blockSA(i, j, ld) (blockSA + (i) * (ld) + (j))
-#define blockScaledSumA(i, j, ld) (blockScaledSumA + (i) * (ld) + (j))
-#define blockB(i, j, ld) ( blockB  + (j) * (ld) + (i) )
-#define blockSB(i, j, ld) (blockSB + (j) * (ld) + (i))
-#define blockMinB(i, j, ld) (blockMinB + (j) * (ld) + (i))
-
-
-static int8_t blockA_packed[MC * KC] __attribute__((aligned(64)));
-static float sA_packed[MC * KC / Q_BLK_SIZE] __attribute__((aligned(64)));
-static float scaledSumA_packed[MC * KC / Q_BLK_SIZE] __attribute__((aligned(64)));
-static uint8_t blockB_packed[KC / 2 * NC] __attribute__((aligned(64)));
-static float sB_packed[NC * KC / Q_BLK_SIZE] __attribute__((aligned(64)));
-static float minB_packed[NC * KC / Q_BLK_SIZE] __attribute__((aligned(64)));
-
-/*
-blockA: packed. row-major.      (MR, KC)
-blockB: packed. column-major.   (KC, NR)
-blockSA: packed. row-major.     (MR, KC/Q_BLK_SIZE)
-blockSB: packed. column-major.  (KC/Q_BLK_SIZE, NR)
-*/
 void matmul_kernel(
     int8_t* A, uint8_t* B, float* C,
     float* SA, float* SB,
@@ -324,12 +291,12 @@ void matmul_kernel_gemv(
     }
 }
 
-void MatmulOperator::qgemv_A8W8_kernel(struct matmul_params *params) {
+void MatmulOperator::qgemv_A80W40_kernel(struct qwen_matmul_params *params) {
     const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
     const int block_size = params->block_size;  // block_size = 32
-
+    float *scale = params->scales, *offset = params->offset;
+    // printf("\e[31m[INFO]\e[m mt qwen int4\n");
     quantize_fp32_to_int8_q80(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, block_size);
-    // quantize_fp32_to_int8_q8_1(A->data_ptr, A->int8_data_ptr, params->A_scales, params->A_scaled_sum, A->row * A->column, block_size);
 
 
     int m = C->row, n = C->column, k = A->column;
@@ -339,7 +306,6 @@ void MatmulOperator::qgemv_A8W8_kernel(struct matmul_params *params) {
     }
     matmul_kernel_gemv(
         A->int8_data_ptr, B->int4_data_ptr, C->data_ptr,
-        //Ink: We use offset to hold the minimum value of blocks in q4_1, for weights.
         params->A_scales, params->scales, 
         m, n, k
     );
@@ -347,13 +313,13 @@ void MatmulOperator::qgemv_A8W8_kernel(struct matmul_params *params) {
 
 };
     
-void MatmulOperator::qgemm_A8W4_kernel(struct matmul_params *params) {
+void MatmulOperator::qgemm_A80W40_kernel(struct qwen_matmul_params *params) {
+
     const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
     const int block_size = params->block_size;  // block_size = 32
-
+    float *scale = params->scales, *offset = params->offset;
+    // printf("\e[31m[INFO]\e[m mt qwen int4\n");
     quantize_fp32_to_int8_q80(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, block_size);
-    // quantize_fp32_to_int8_q8_1(A->data_ptr, A->int8_data_ptr, params->A_scales, params->A_scaled_sum, A->row * A->column, block_size);
-
 
     int m = C->row, n = C->column, k = A->column;
     // zero out C
@@ -362,7 +328,6 @@ void MatmulOperator::qgemm_A8W4_kernel(struct matmul_params *params) {
     }
     matmul_kernel(
         A->int8_data_ptr, B->int4_data_ptr, C->data_ptr,
-        //Ink: We use offset to hold the minimum value of blocks in q4_1, for weights.
         params->A_scales, params->scales,
         m, n, k
     );

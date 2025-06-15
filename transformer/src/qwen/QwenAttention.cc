@@ -13,54 +13,43 @@
 #include "utils.h"
 
 
-Qwen3Attention::Qwen3Attention(float * k_cache_space_, float * v_cache_space_, std::string param_path, struct qwen3_config config, int layer_idx)
+Qwen3Attention::Qwen3Attention(ModelContext *ctx, float * k_cache_space_, float * v_cache_space_, std::string param_path, struct qwen3_config config, int layer_idx)
+    : context_(ctx)
+    , k_cache_space(k_cache_space_)
+    , v_cache_space(v_cache_space_)
+    , layer_idx(layer_idx)
+    , params_path(param_path)
+    , max_sqlen(config.max_sqlen)
+    , hidden_dim(config.hidden_dim)
+    , q_dim(hidden_dim)
+    , kv_dim(hidden_dim / 4)
+    , num_q_head(config.num_q_head)
+    , num_kv_head(config.num_kv_head)
+    , head_dim(config.head_dim)
+    , q_proj(ctx, param_path + "/q_proj/", 1, q_dim, hidden_dim)
+    , k_proj(ctx, param_path + "/k_proj/", 1, kv_dim, hidden_dim)
+    , v_proj(ctx, param_path + "/v_proj/", 1, kv_dim, hidden_dim)
+    , o_proj(ctx, param_path + "/o_proj/", 1, hidden_dim, hidden_dim)
+    , q_norm(head_dim)
+    , k_norm(head_dim)
+    , rope_embed(max_sqlen, head_dim, param_path + "/../../../rotary_emb")
 {
-    k_cache_space = k_cache_space_;
-    v_cache_space = v_cache_space_;
-    this->layer_idx = layer_idx;
-    this->params_path = param_path;
-    max_sqlen = config.max_sqlen;
-    hidden_dim = config.hidden_dim;
-    q_dim = hidden_dim;
-    kv_dim = hidden_dim / 4;
-    num_q_head = config.num_q_head;
-    num_kv_head = config.num_kv_head;
-    head_dim = q_dim / num_q_head;
     assert (head_dim == kv_dim / num_kv_head);
 
-    IF_DEBUG(
-        printf("\e[31m[INFO]\e[m Loading Attention Module\n");
-    );
-    q_proj = Qwen_Linear_with_bias_Int4(
-            param_path + "/q_proj/", 1, q_dim, hidden_dim
-    );
-    k_proj = Qwen_Linear_with_bias_Int4(
-            param_path + "/k_proj/", 1, kv_dim, hidden_dim
-    );
-    v_proj = Qwen_Linear_with_bias_Int4(
-            param_path + "/v_proj/", 1, kv_dim, hidden_dim
-        );
-    o_proj = Qwen_Linear_with_bias_Int4(
-        param_path + "/o_proj/", 1, hidden_dim, hidden_dim
-    );
-    IF_DEBUG(
-        printf("\e[31m[INFO]\e[m Loading Attention qk norm\n");
-    );
-    q_norm = Qwen3RMSNorm(head_dim);
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading Attention Module\n"););
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Attention Module Loaded\n"););
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading Attention qk norm\n"););
+    
     q_norm.load((param_path + "/q_norm/weight.bin").c_str());
-
-    k_norm = Qwen3RMSNorm(head_dim);
     k_norm.load((param_path + "/k_norm/weight.bin").c_str());
-
-    // ROPE
-    this->rope_embed = RotaryPosEmb(max_sqlen, head_dim, param_path + "/../../../rotary_emb");
+    
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Attention qk norm Loaded\n"););
 
     // scaling factor
     float qk_bmm_alpha;
     read_to_array((param_path + "/scaling.bin").c_str(), &qk_bmm_alpha, 1);
     this->qk_bmm = bgemmGQA(qk_bmm_alpha, num_q_head, num_kv_head);
     this->pv_bmm = bgemmGQA(1.0f, num_q_head, num_kv_head);
-
 }
 
 
@@ -227,29 +216,29 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // Debug
     // --------------------------------------------------------------
     IF_DEBUG_ATTENTION(([&] {
-        printf("k cache statrt %p; first value = %f\n", k_cache_space, *k_cache_space);
-        // Matrix3D<float> final_key_states_expanded = k_cache_expanded_view.contiguous();
-        std::string save_dir = params_path + "/activation/" + std::to_string(past_sqlen) + "/";
-        std::vector<std::pair<Matrix3D<float>, std::string>> state_dict{
-            {query_states, "query_states-gt.bin"},
-            {key_states, "key_states-gt.bin"},
-            {value_states, "value_states-gt.bin"},
-            // {final_key_states_expanded, "final_key_states_expanded-gt.bin"},
-            // {final_value_states_expanded, "final_value_states_expanded-gt.bin"},
-            {attn_weights, "attn_weights-gt.bin"},
-            {attn_output_fp, "attn_output_fp-gt.bin"}
-        };
-        for (auto& [matrix, name] : state_dict) {
-            printf("Evaluating %s ... ", name.c_str());
-            assert(matrix.compare_with_gt(save_dir + name));
-            printf(" matched\n");
+        // printf("k cache statrt %p; first value = %f\n", k_cache_space, *k_cache_space);
+        // // Matrix3D<float> final_key_states_expanded = k_cache_expanded_view.contiguous();
+        // std::string save_dir = params_path + "/activation/" + std::to_string(past_sqlen) + "/";
+        // std::vector<std::pair<Matrix3D<float>, std::string>> state_dict{
+        //     {query_states, "query_states-gt.bin"},
+        //     {key_states, "key_states-gt.bin"},
+        //     {value_states, "value_states-gt.bin"},
+        //     // {final_key_states_expanded, "final_key_states_expanded-gt.bin"},
+        //     // {final_value_states_expanded, "final_value_states_expanded-gt.bin"},
+        //     {attn_weights, "attn_weights-gt.bin"},
+        //     {attn_output_fp, "attn_output_fp-gt.bin"}
+        // };
+        // for (auto& [matrix, name] : state_dict) {
+        //     printf("Evaluating %s ... ", name.c_str());
+        //     assert(matrix.compare_with_gt(save_dir + name));
+        //     printf(" matched\n");
 
-        }
-        query_states.statistics();
-        key_states.statistics();
-        value_states.statistics();
-        attn_output.statistics();
-        attn_output_fp.statistics();
+        // }
+        // query_states.statistics();
+        // key_states.statistics();
+        // value_states.statistics();
+        // attn_output.statistics();
+        // attn_output_fp.statistics();
     }());
     );
     // ---------------------------------------------------------------

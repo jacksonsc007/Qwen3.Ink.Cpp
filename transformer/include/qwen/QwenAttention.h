@@ -1,5 +1,6 @@
 #pragma once
 #include "common.h"
+#include "model.h"
 #include "operators.h"
 #include "QwenOperator.h"
 
@@ -24,11 +25,12 @@ struct Qwen3Attention_Input
 
 class Qwen3Attention {
     float * k_cache_space, * v_cache_space;
+    ModelContext * context_;
 
 public:
     // construct
     Qwen3Attention(){}
-    Qwen3Attention(float * k_cache_space_, float * v_cache_space_, std::string param_path, struct qwen3_config config, int layer_idx);
+    Qwen3Attention(ModelContext * ctx, float * k_cache_space_, float * v_cache_space_, std::string param_path, struct qwen3_config config, int layer_idx);
 
     // member
     int hidden_dim, head_dim, max_sqlen;

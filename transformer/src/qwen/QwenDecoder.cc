@@ -20,37 +20,35 @@ void Qwen3Model::prepare_decoder_attention_mask(int length, int past_length, Mat
         }
 } 
 
-Qwen3Model::Qwen3Model(ModelContext* ctx, std::string param_path, const struct qwen3_config config){
-    context_ = ctx;
-    // allocate_aligned_memory(attention_mask_buf, sizeof(float) * config.max_sqlen * config.max_sqlen);
-    // allocate_aligned_memory(last_hidden_states_buf, sizeof(float) * config.max_sqlen * config.embed_dim);
-    voc_size = config.vocsize;
-    hidden_dim = config.hidden_dim;
-    max_sqlen = config.max_sqlen;
-    num_layers = config.num_layers;
-    bs = config.batchsize;
-    this->param_path = param_path;
-
+Qwen3Model::Qwen3Model(ModelContext* ctx, std::string param_path, const struct qwen3_config config)
+    : context_(ctx)
+    , voc_size(config.vocsize)
+    , hidden_dim(config.hidden_dim)
+    , max_sqlen(config.max_sqlen)
+    , num_layers(config.num_layers)
+    , bs(config.batchsize)
+    , param_path(param_path)
+    , wte(hidden_dim, voc_size)
+    , output_norm(hidden_dim)
+{
     IF_DEBUG(
         printf("\e[31m[INFO]\e[m Loading weights for word token embeddings ...\n");
     )
-    wte = Embedding(hidden_dim, voc_size);
     wte.load(param_path + "/embed_tokens");
 
     // final output norm
     printf("\e[31m[INFO]\e[m Loading weights for output norm ...\n");
-    output_norm = Qwen3RMSNorm(hidden_dim);
     output_norm.load((param_path + "/norm/weight.bin").c_str());
 
     // decoder layers
     printf("\e[31m[INFO]\e[m Loading weights for Qwen Blocks ...\n");
+    layers.reserve(num_layers);
     for (int layer_idx = 0; layer_idx < config.num_layers; layer_idx++) {
         IF_DEBUG(
             printf("\e[31m[INFO]\e[m Loading Qwen Block %d...\n", layer_idx);
         );
         std::string path = param_path + "/layers/layer" + std::to_string(layer_idx);
-        Qwen3DecoderLayer layer = Qwen3DecoderLayer(ctx, path, config, layer_idx);
-        layers.push_back(layer);
+        layers.emplace_back(ctx, path, config, layer_idx);
     }
 }
 

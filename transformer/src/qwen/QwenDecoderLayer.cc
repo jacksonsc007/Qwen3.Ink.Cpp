@@ -6,43 +6,33 @@
 
 
 Qwen3DecoderLayer::Qwen3DecoderLayer(ModelContext * ctx, std::string param_path, const struct qwen3_config config, int layer_idx)
+    : context_ptr(ctx)
+    , layer_idx(layer_idx)
+    , max_sqlen(config.max_sqlen)
+    , hidden_dim(config.hidden_dim)
+    , input_layernorm(hidden_dim)
+    , post_attention_layernorm(hidden_dim)
+    , attn(ctx, 
+           ctx->k_cache.get() + layer_idx * (config.num_kv_head * max_sqlen * config.head_dim),
+           ctx->v_cache.get() + layer_idx * (config.num_kv_head * max_sqlen * config.head_dim),
+           param_path + "/self_attn",
+           config,
+           layer_idx)
+    , gate_proj(ctx, param_path + "/mlp/gate_proj/", 1, mlp_proj_dim, hidden_dim)
+    , up_proj(ctx, param_path + "/mlp/up_proj/", 1, mlp_proj_dim, hidden_dim)
+    , down_proj(ctx, param_path + "/mlp/down_proj/", 1, hidden_dim, mlp_proj_dim)
 {
-    context_ptr = ctx;
-    this->layer_idx = layer_idx;
-    max_sqlen = config.max_sqlen;
-    hidden_dim = config.hidden_dim;
-
-    // input layernorm
-    this->input_layernorm = Qwen3RMSNorm(hidden_dim);
     IF_DEBUG( printf("\e[31m[INFO]\e[m Loading input layernorm for Qwen Block %d...\n", layer_idx););
     input_layernorm.load(param_path + "/input_layernorm/weight.bin");
 
     IF_DEBUG( printf("\e[31m[INFO]\e[m Loading post attention layernorm for Qwen Block %d...\n", layer_idx););
-    // post attention layernorm
-    this->post_attention_layernorm = Qwen3RMSNorm(hidden_dim);
     post_attention_layernorm.load(param_path + "/post_attention_layernorm/weight.bin");
 
     IF_DEBUG( printf("\e[31m[INFO]\e[m Loading self attention layer for Qwen Block %d...\n", layer_idx););
-    // attention module
-    int layer_stride = config.num_kv_head * max_sqlen * config.head_dim;
-    float * k_cache_space = ctx->k_cache.get() + layer_idx * layer_stride;
-    float * v_cache_space = ctx->v_cache.get() + layer_idx * layer_stride;
-    this -> attn = Qwen3Attention(k_cache_space, v_cache_space, param_path + "/self_attn", config, layer_idx);
+    IF_DEBUG( printf("\e[32m[INFO]\e[m self attention layer for Qwen Block %d... loaded\n", layer_idx););
 
-    // mlp module
     IF_DEBUG( printf("\e[31m[INFO]\e[m Loading mlp for Qwen Block %d...\n", layer_idx););
-    this->gate_proj = Qwen_Linear_with_bias_Int4(
-        (param_path + "/mlp/gate_proj/"),
-        1, mlp_proj_dim, hidden_dim
-    );
-    this->up_proj   = Qwen_Linear_with_bias_Int4(
-        (param_path + "/mlp/up_proj/"),
-        1, mlp_proj_dim, hidden_dim
-    );
-    this->down_proj = Qwen_Linear_with_bias_Int4(
-        (param_path + "/mlp/down_proj/"),
-        1, hidden_dim, mlp_proj_dim
-    );
+    IF_DEBUG( printf("\e[31m[INFO]\e[m mlp for Qwen Block %d... Loaded\n", layer_idx););
 }
 
 

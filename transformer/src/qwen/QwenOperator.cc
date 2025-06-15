@@ -50,18 +50,13 @@ Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
     return output;
 }
 
-#define BUFFER_SIZE 4096 * 4096 * 16  // 16MB, TO BE REMOVED with better memory allocation!
-static int8_t *x_int8;
-static float *x_scale;
-void initialize_memory(const int block_size) {
-    allocate_aligned_memory(x_int8, BUFFER_SIZE * sizeof(int8_t));
-    allocate_aligned_memory(x_scale, (BUFFER_SIZE / block_size) * sizeof(float));
-}
+
+
 
 Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation) {
     const int num_thread = 16;
     const int bs = activation.m_dim_x;
-    const int m = activation.m_dim_y, n = weight.m_dim_y, k = activation.m_dim_z, b_size = weight.m_dim_x;
+    const int m = activation.m_dim_y, n = weight_cols, k = activation.m_dim_z, b_size = activation.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
     Matrix3D<float> output (bs, m, n);
     std::ostringstream oss;
@@ -69,79 +64,21 @@ Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation)
     std::string formatted_profile_name = oss.str();
     PROFILE_START_FLOPS(formatted_profile_name, ops);
 
-                                         // A: 1 x m x k float32  B: 1 x n x (k / 2) uint8   C: m x n (float32)
-    assert(activation.m_dim_x == weight.m_dim_x);      // batch dim
-    assert(activation.m_dim_z / 2 == weight.m_dim_z);  // k
-    assert(activation.m_dim_y == output.m_dim_y);      // m
-    assert(weight.m_dim_y == output.m_dim_z);      // n
-                                         // batch dim == 1 only support MM for now
-    assert(activation.m_dim_x == 1);
-    assert(weight.m_dim_x == 1);
-
-    struct qwen_matmul_params params;
-    params.A.row                 = activation.m_dim_y;
-    params.A.column              = activation.m_dim_z;
-    params.A.data_ptr            = activation.data();
-    params.B.row                 = weight.m_dim_z;                // k
-    params.B.column              = weight.m_dim_y;                // n
-    params.B.int4_data_ptr       = weight.data();
-
-    params.C.row                 = output.m_dim_y;
-    params.C.column              = output.m_dim_z;
-    params.C.data_ptr            = output.data();
-    params.opt_params.num_thread = NUM_THREAD;
-    params.scales                = this->scale.data();
-    params.offset                = this->offset.data();
-    params.zero_point            = this->zero_point.data();
-    params.block_size            = QK;
-
-    activation_int8 = Matrix3D<int8_t>(bs, m, k);
-    activation_scale = Matrix3D<float>(bs, m, k / QK);
-
-    if (x_int8 == NULL || x_scale == NULL)
-    {
-       initialize_memory(QK);
-    }
-    params.A.int8_data_ptr = x_int8;
-    params.A_scales = x_scale;
-
-    matmul::MatmulOperator op = matmul::MatmulOperator();
-    // op.matMul_int4_multiThread_qwen(&params);
-    // op.matMul_int4_avx_qwen(&params);
-    // op.matMul_int4_multiThread_avx_qwen(&params);
-    // op.matMul_int4_Tiling1vl_qwen(&params);
-    // op.matMul_int4_unrolling2x2_qwen(&params);
-    // op.matMul_int4Reference_qwen(&params);
-    // op.matMul_int4_multiThread_avx_qwen(&params);
-    
-    if (m != 1)
-    {
-        op.qgemm_A80W40_kernel(&params);
-    }
-    else 
-    {
-        op.qgemv_A80W40_kernel(&params);
-    }
 
 
-    // add bias TODO: simd
-    if (has_bias)
-    {
-        std::ostringstream oss;
-        oss << "[" << profile_name << " bias_add: " << m << " x " << n << " x " << k << "]";
-        std::string formatted_profile_name = oss.str();
-        Matrix3D<float> bias = this->bias; // (1, n, 1)
-        assert (bias.m_dim_y == weight.m_dim_y);
-        PROFILE_START(formatted_profile_name);
-        for (int i = 0; i < m; i++)
-        {
-            for (int j = 0; j < n; j++)
-            {
-                output(0, i, j) += bias(0, j, 0);
-            }
-        }
-        PROFILE_END(formatted_profile_name);
-    }
+    int8_t * A_repack = context_->activation_buffer.get();
+    quantize_row_q8_0_repack(activation.data(), A_repack, m * k);
+
+    if (m > 1)
+        gemm_repack_A80W40(
+            A_repack, weight_repack.get(), output.data(),
+            m, n, k
+        );
+    else
+        gemv_repack_A80W40(
+            A_repack, weight_repack.get(), output.data(),
+            m, n, k
+        );
 
     PROFILE_END(formatted_profile_name);
     return output;
@@ -506,3 +443,53 @@ bool has_nan(Matrix3D<float> mat)
     }
     return res;
 }
+
+
+
+#define A(i, j, ld) ( A + ( i ) * ( ld ) + ( j ) )
+#define B(i, j, ld) ( B + ( j ) * ( ld ) + ( i ) )
+#define C(i, j, ld) ( C + ( i ) * ( ld ) + ( j ) )
+#define SA(i, j, ld) (SA + (i) * (ld) + (j))
+#define SB(i, j, ld) (SB + (j) * (ld) + (i))
+void Qwen_Linear_with_bias_Int4::repack_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+    const float * SB, const uint8_t * B)
+    {
+        
+    int num_repack_blk_B_along_K = K / (2 * Q_BLK_SIZE);
+    int num_repack_blk_B_along_N = N / 8;
+    struct q4_repack_2x8 * B_start =  (struct q4_repack_2x8 *) B_repack;
+    for (int j = 0; j < num_repack_blk_B_along_N; j++) 
+    {
+        for (int i = 0; i < num_repack_blk_B_along_K; i++)
+        {
+            struct q4_repack_2x8 * B_ptr =  B_start + j * num_repack_blk_B_along_K + i;
+
+            // pack scaling factors
+            for (int jj = 0; jj < 8; jj++)
+            {
+                float s_low  = *SB ( i * 2    , j * 8 + jj, K / Q_BLK_SIZE ); 
+                float s_high = *SB ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ); 
+                B_ptr->s_low[jj] = s_low;
+                B_ptr->s_high[jj] = s_high;
+            }
+            // pack quantized int4 weights in an interleaved manner
+            // The block has size of 64 x 8 elements logically, but physically it is laid out as 32 x 8,
+            // since each element has 4 bits and the block has type int8, wiht each element only taking half of the byte.
+            // 32 x 8 is covered by stacking 8 packs, each measuring 4 x 8 elements.
+            // memory layout inside packs is in column-major order
+            uint8_t * B_ptr_start =  B_ptr->q_coupled;
+            int num_packs = 8;
+            for (int pack_idx = 0; pack_idx < num_packs; pack_idx++)
+            {
+                uint8_t * pack_start_ptr = B_ptr_start + pack_idx * 32;
+                for (int jj = 0; jj < 8; jj++)
+                {
+                    for (int ii = 0; ii < 4; ii++)
+                    {
+                        pack_start_ptr[ii + jj * 4] = *B(i * Q_BLK_SIZE + pack_idx * 4 + ii, j * 8 + jj, K / 2);
+                    }
+                }
+            }
+        }
+    } 
+    }

@@ -1,4 +1,6 @@
 #include "QwenForCausalLM.h"
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include "QwenOperator.h"
@@ -66,7 +68,6 @@ Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_co
     int num_decoder_layer = config.num_layers;
     int attn_head_dim = config.head_dim;
     int num_kv_head = config.num_kv_head;
-    lm_head_weight = Matrix3D<float>(1, h_dim, vocab_size);
     
     // allocate KV cahe considering maximum sequence length
     size_t cache_size = (
@@ -74,11 +75,37 @@ Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_co
     );
     context_.k_cache = std::make_unique<float []>(cache_size);
     context_.v_cache = std::make_unique<float []>(cache_size);
+    size_t max_weight_rows = 4096;
+    size_t max_weight_cols = 151936;
+    size_t num_q_blocks = max_weight_rows * max_weight_cols / QK;
+    size_t size_per_q_block = (
+        sizeof(float) * 4 + // scaling factors, min, zero, scaled sum
+        (sizeof(uint8_t) / 2) * QK + // quantized weights
+        (sizeof(uint8_t) / 2) * QK // prepare for mixture of A80W40 and A81W41
+    );
+    size_t weight_buffer_size = (
+        num_q_blocks * size_per_q_block
+    );
+    context_.repack_buffer = std::make_unique<int8_t []>(weight_buffer_size); // 2 int4 weights in one byte
+
+    size_t max_activation_cols = 12288; // 12288 is the maximum hidden dimension
+    size_t max_activation_rows = max_sqlen;
+    num_q_blocks = max_activation_rows * max_activation_cols / QK;
+    size_per_q_block = (
+        sizeof(float) * 4 + // scaling factors, min, zero, scaled sum
+        (sizeof(uint8_t)) * QK 
+    );
+
+    size_t activation_buffer_size = (
+        num_q_blocks * size_per_q_block
+    );
+    context_.activation_buffer = std::make_unique<int8_t []>(activation_buffer_size); // 2 int4 weights in one byte
 
     this->model = Qwen3Model(&context_, param_path + "/model", config);
 
     /*
     The linear weights are serialized from PyTorch, which has shape (out_dim, in_dim)
     */
-    this->lm_head = Qwen_Linear_with_bias_Int4(param_path + "/lm_head/", 1, vocab_size, h_dim);;
+    IF_DEBUG(printf("\e[31m[INFO]\e[m Initialize lm_head\n");)
+    this->lm_head = Qwen_Linear_with_bias_Int4(&context_, param_path + "/lm_head/", 1, vocab_size, h_dim);;
 }
