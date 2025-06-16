@@ -16,8 +16,7 @@ string(JOIN " "
   "-DPROFILER"
   "-DDEBUG"
   "-DDEBUG_ATTENTION"
-  "-mavx2"
-  "-mfma"
+  "-march=native"
 )
 # disable assert
 # add_compile_definitions(NDEBUG)
@@ -54,6 +53,7 @@ set(ABSL_ENABLE_INSTALL ON)
 set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(third_party/abseil-cpp)
 add_subdirectory(third_party/re2)
+add_subdirectory(third_party/ggml)
 
 option(OPENBLAS "" OFF)
 if(OPENBLAS)
@@ -73,5 +73,7 @@ endif(OPENBLAS)
 add_executable(test ${MAIN_SRCS} ${SRCS} ${SRCS2} ${QWEN_SRCS})
 target_include_directories(test PUBLIC ${INCLUDE_DIR})
 target_include_directories(test PUBLIC ${QWEN_INCLUDE_DIR})
+target_include_directories(test PRIVATE third_party/ggml/include/ggml third_party/ggml/src third_party/ggml/src/ggml-cpu)
 target_link_libraries(test PUBLIC re2::re2)
-target_link_libraries(test PUBLIC openblas)
+# target_link_libraries(test PUBLIC openblas)
+target_link_libraries(test PUBLIC ggml)

@@ -262,6 +262,7 @@ void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, M
     PROFILE_END(formatted_profile_name);
 }
 
+#ifdef openblas
 void bgemmGQA::forward_openblas_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
     int bs = A.m_dim_x;
     int m = A.m_dim_y;
@@ -462,6 +463,7 @@ void bgemmGQA::forward_openblas_pv(Matrix3D<float> &A, MatrixView<float> &B, Mat
     delete[] C_pointers;
     PROFILE_END(formatted_profile_name);
 }
+#endif
 
 void bgemmGQA::forward_weight_untransposed(Matrix3D<float> &A, MatrixView<float> &B,
                                            Matrix3D<float> &output) {
@@ -592,8 +594,9 @@ void Qwen_Linear_with_bias_Int4::repack_weight(const int K, const int N, const i
             // pack scaling factors
             for (int jj = 0; jj < 8; jj++)
             {
-                float s_low  = *SB ( i * 2    , j * 8 + jj, K / Q_BLK_SIZE ); 
-                float s_high = *SB ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ); 
+                // Convert FP32 to FP16 to improve gemv performance
+                fp16_t s_low  = GGML_FP32_TO_FP16( *SB ( i * 2    , j * 8 + jj, K / Q_BLK_SIZE ) ); 
+                fp16_t s_high = GGML_FP32_TO_FP16( *SB ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ) ); 
                 B_ptr->s_low[jj] = s_low;
                 B_ptr->s_high[jj] = s_high;
             }

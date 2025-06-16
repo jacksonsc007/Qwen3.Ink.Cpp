@@ -4,3 +4,6 @@
 [submodule "transformer/json"]
 	path = transformer/json
 	url = https://github.com/nlohmann/json
+[submodule "transformer/transformer/third_party/ggml"]
+	path = transformer/transformer/third_party/ggml
+	url = https://github.com/ggml-org/ggml.git

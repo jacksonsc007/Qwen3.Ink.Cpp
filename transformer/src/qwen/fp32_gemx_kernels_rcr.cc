@@ -17,6 +17,8 @@
 // openmp setting
 #define OMP_SCHEDULE dynamic
 #define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")
+#define NTHREADS_GEMV 4
+#define PRAGMA_OMP_PARALLEL_FOR_GEMV _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS_GEMV)")
 
 #define MR 6
 #define NR 16
@@ -452,6 +454,8 @@ void gemm_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const
 
 void gemv_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K) {
     // PRAGMA_OMP_PARALLEL_FOR
+    // PRAGMA_OMP_PARALLEL_FOR_GEMV
+    #pragma omp parallel for num_threads(NTHREADS_GEMV)
     for( int j = 0; j < N; j++)
     {
         __m256 acc = _mm256_setzero_ps();

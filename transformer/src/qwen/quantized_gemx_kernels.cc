@@ -8,6 +8,7 @@
 
 #define Q_BLK_SIZE 32
 #define QK8_0 32
+
 #ifndef NTHREADS
 #define NTHREADS 16
 #endif
@@ -27,6 +28,9 @@
 #define C(i, j, ld) ( C + ( i ) * ( ld ) + ( j ) )
 #define SA(i, j, ld) (SA + (i) * (ld) + (j))
 #define SB(i, j, ld) (SB + (j) * (ld) + (i))
+
+#define GGML_F32Cx8_LOAD(x)     _mm256_cvtph_ps(_mm_loadu_si128((const __m128i *)(x)))
+#define BROADCAST_FP16_FP32(x)  _mm256_cvtph_ps(_mm_set1_epi16(x))
 
 void gemv_repack_A80W40(
     void * A_repack,
@@ -84,10 +88,10 @@ void gemv_repack_A80W40(
                 // __m256i iacc = _mm256_add_epi32(iacc_low, iacc_high);
                 
                 // load scaleing factors
-                __m256 sB_low = _mm256_loadu_ps(B_block.s_low);
-                __m256 sB_high = _mm256_loadu_ps(B_block.s_high);
-                __m256 sA_low = _mm256_set1_ps(A_ptr[blk_id].s_low);
-                __m256 sA_high = _mm256_set1_ps(A_ptr[blk_id].s_high);
+                __m256 sB_low = GGML_F32Cx8_LOAD(B_block.s_low);
+                __m256 sB_high = GGML_F32Cx8_LOAD(B_block.s_high);
+                __m256 sA_low = BROADCAST_FP16_FP32(A_ptr[blk_id].s_low);
+                __m256 sA_high = BROADCAST_FP16_FP32(A_ptr[blk_id].s_high);
                 __m256 s_low = _mm256_mul_ps(sA_low, sB_low);
                 __m256 s_high = _mm256_mul_ps(sA_high, sB_high);
                 acc_row = _mm256_fmadd_ps(_mm256_cvtepi32_ps(iacc_low), s_low, acc_row);
@@ -207,14 +211,14 @@ void gemm_repack_A80W40(
                 }
 
                 // Load scaling factors
-                __m256 sB_low_0 = _mm256_loadu_ps(B_block_0.s_low);
-                __m256 sB_high_0 = _mm256_loadu_ps(B_block_0.s_high);
-                __m256 sB_low_1 = _mm256_loadu_ps(B_block_1.s_low);
-                __m256 sB_high_1 = _mm256_loadu_ps(B_block_1.s_high);
-                __m256 sA_low_0 = _mm256_set1_ps(A_ptr_0[blk_id].s_low);
-                __m256 sA_high_0 = _mm256_set1_ps(A_ptr_0[blk_id].s_high);
-                __m256 sA_low_1 = _mm256_set1_ps(A_ptr_1[blk_id].s_low);
-                __m256 sA_high_1 = _mm256_set1_ps(A_ptr_1[blk_id].s_high);
+                __m256 sB_low_0 = GGML_F32Cx8_LOAD(B_block_0.s_low);
+                __m256 sB_high_0 = GGML_F32Cx8_LOAD(B_block_0.s_high);
+                __m256 sB_low_1 = GGML_F32Cx8_LOAD(B_block_1.s_low);
+                __m256 sB_high_1 = GGML_F32Cx8_LOAD(B_block_1.s_high);
+                __m256 sA_low_0 = BROADCAST_FP16_FP32(A_ptr_0[blk_id].s_low);
+                __m256 sA_high_0 = BROADCAST_FP16_FP32(A_ptr_0[blk_id].s_high);
+                __m256 sA_low_1 = BROADCAST_FP16_FP32(A_ptr_1[blk_id].s_low);
+                __m256 sA_high_1 = BROADCAST_FP16_FP32(A_ptr_1[blk_id].s_high);
 
                 // Compute fused scaling factors
                 __m256 s_low_00 = _mm256_mul_ps(sA_low_0, sB_low_0);
@@ -300,8 +304,8 @@ void quantize_row_q8_0_repack(const float * x, void * vy, int64_t k) {
         // Quantize these floats
         const float d_low = maxScalar_low / 127.f;
         const float d_high = maxScalar_high / 127.f;
-        y[i].s_low = d_low;
-        y[i].s_high = d_high;
+        y[i].s_low = GGML_FP32_TO_FP16(d_low);
+        y[i].s_high = GGML_FP32_TO_FP16(d_high);
         
         const float id_low = (maxScalar_low != 0.0f) ? 127.f / maxScalar_low : 0.0f;
         const float id_high = (maxScalar_high != 0.0f) ? 127.f / maxScalar_high : 0.0f;

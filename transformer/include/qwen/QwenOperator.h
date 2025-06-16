@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
+#include "ggml-impl.h"
 
 bool has_nan(Matrix3D<float> mat);
 void permute01(Matrix3D<float> before, Matrix3D<float> after);
@@ -35,6 +36,7 @@ public:
     int m_dim_x_original, m_dim_y_original, m_dim_z_original; // Original dimensions
     int stride_x, stride_y, stride_z;
     int m_repeat_x, m_repeat_y, m_repeat_z; // Repeat counts per dimension
+    int offset_x, offset_y, offset_z;
     MatrixView()
     {
         m_data = NULL;
@@ -50,16 +52,20 @@ public:
         m_repeat_x = 1;
         m_repeat_y = 1;
         m_repeat_z = 1;
+        offset_x = 0;
+        offset_y = 0;
+        offset_z = 0;
     }
     // Constructor - wraps existing memory with optional strides
     MatrixView(T* data, int dim_x, int dim_y, int dim_z,
-               int stride_x = 0, int stride_y = 0, int stride_z = 0)
+               int stride_x = 0, int stride_y = 0, int stride_z = 0, int offset_x = 0, int offset_y = 0, int offset_z = 0)
         : m_data(data),
           m_dim_x(dim_x), m_dim_y(dim_y), m_dim_z(dim_z),
           m_dim_x_original(dim_x), m_dim_y_original(dim_y), m_dim_z_original(dim_z),
           stride_x(stride_x > 0 ? stride_x : dim_y * dim_z),
           stride_y(stride_y > 0 ? stride_y : dim_z),
           stride_z(stride_z > 0 ? stride_z : 1),
+          offset_x(offset_x), offset_y(offset_y), offset_z(offset_z),
           m_repeat_x(1), m_repeat_y(1), m_repeat_z(1)
     {
         if (!data) {
@@ -85,6 +91,9 @@ public:
         m_repeat_x = other.m_repeat_x;
         m_repeat_y = other.m_repeat_y;
         m_repeat_z = other.m_repeat_z;
+        offset_x = other.offset_x;
+        offset_y = other.offset_y;
+        offset_z = other.offset_z;
     }
     
     Matrix3D<T> contiguous()
@@ -107,13 +116,13 @@ public:
     T& operator()(int x, int y, int z) {
         // modify_repetition_index(x, y, z);
         // check_bounds(x, y, z);
-        return m_data[x * stride_x + y * stride_y + z * stride_z];
+        return m_data[(x + offset_x) * stride_x + (y + offset_y) * stride_y + (z + offset_z) * stride_z];
     }
 
     const T& operator()(int x, int y, int z) const {
         // modify_repetition_index(x, y, z);
         // check_bounds(x, y, z);
-        return m_data[x * stride_x + y * stride_y + z * stride_z];
+        return m_data[(x + offset_x) * stride_x + (y + offset_y) * stride_y + (z + offset_z) * stride_z];
     }
 
     // Create a view with a dimension repeated
@@ -143,19 +152,19 @@ public:
     }
 
     // Create subview
-    MatrixView<T> subview(int x_start, int x_end,
-                          int y_start, int y_end,
-                          int z_start, int z_end) const {
-        return MatrixView<T>(
-            &(*this)(x_start, y_start, z_start),
-            x_end - x_start,
-            y_end - y_start,
-            z_end - z_start,
-            stride_x,
-            stride_y,
-            stride_z
-        );
-    }
+    // MatrixView<T> subview(int x_start, int x_end,
+    //                       int y_start, int y_end,
+    //                       int z_start, int z_end) const {
+    //     return MatrixView<T>(
+    //         &(*this)(x_start, y_start, z_start),
+    //         x_end - x_start,
+    //         y_end - y_start,
+    //         z_end - z_start,
+    //         stride_x,
+    //         stride_y,
+    //         stride_z
+    //     );
+    // }
 
     void load(const char* path) 
     {
@@ -192,36 +201,85 @@ public:
         if (m_repeat_z > 1) z = z / m_repeat_z;
     }
 
-    void check_bounds(int x, int y, int z) const {
-        if (x < 0 || x >= m_dim_x_original ||
-            y < 0 || y >= m_dim_y_original ||
-            z < 0 || z >= m_dim_z_original) {
-            throw std::out_of_range(
-                "MatrixView index (" + std::to_string(x) + "," 
-                + std::to_string(y) + "," + std::to_string(z) 
-                + ") out of bounds for original dimensions ("
-                + std::to_string(m_dim_x_original) + ","
-                + std::to_string(m_dim_y_original) + ","
-                + std::to_string(m_dim_z_original) + ")");
+    // void check_bounds(int x, int y, int z) const {
+    //     if (x < 0 || x >= m_dim_x_original ||
+    //         y < 0 || y >= m_dim_y_original ||
+    //         z < 0 || z >= m_dim_z_original) {
+    //         throw std::out_of_range(
+    //             "MatrixView index (" + std::to_string(x) + "," 
+    //             + std::to_string(y) + "," + std::to_string(z) 
+    //             + ") out of bounds for original dimensions ("
+    //             + std::to_string(m_dim_x_original) + ","
+    //             + std::to_string(m_dim_y_original) + ","
+    //             + std::to_string(m_dim_z_original) + ")");
+    //     }
+    // }
+
+    // Copy data to another MatrixView object
+    void copy_to(MatrixView<T>& dest) const {
+        // Check if dimensions match
+        if (dest.m_dim_x != m_dim_x || dest.m_dim_y != m_dim_y || dest.m_dim_z != m_dim_z) {
+            throw std::invalid_argument("Destination MatrixView dimensions do not match source dimensions");
         }
+
+        // Copy data element by element
+        for (int i = 0; i < m_dim_x; i++) {
+            for (int j = 0; j < m_dim_y; j++) {
+                for (int k = 0; k < m_dim_z; k++) {
+                    dest(i, j, k) = (*this)(i, j, k);
+                }
+            }
+        }
+        
+            // for (int i = 0; i < m_dim_x; i++) {
+            //     for (int j = 0; j < m_dim_y; j++) {
+            //         for (int k = 0; k < m_dim_z; k++) {
+            //             float v1= (float) dest(i, j, k);
+            //             float v2= (*this)(i, j, k);
+            //             if( v1 != v2)
+            //             {
+            //                 printf("value mismatch in copy function: %f vs %f at (%d, %d, %d)\n", v1, v2, i, j, k);
+            //                 std::abort();
+            //             }
+            //         }
+            //     }
+            // }
+    }
+    
+    T sum()
+    {
+        T acc = 0;
+        for (int i = 0; i < m_dim_x; i++) {
+            for (int j = 0; j < m_dim_y; j++) {
+                for (int k = 0; k < m_dim_z; k++) {
+                     acc += (*this)(i, j, k);
+                }
+            }
+        }
+        return acc;
+    }
+    
+    void statistics()
+    {
+        std::cout << " sum: " << sum() << std::endl;
     }
 };
 
-
+typedef uint16_t fp16_t;
 
 struct q4_repack_2x8{
-    float s_low[8];
-    float s_high[8];
-    float min_low[8];
-    float min_high[8];
+    fp16_t s_low[8];
+    fp16_t s_high[8];
+    fp16_t min_low[8];
+    fp16_t min_high[8];
     uint8_t q_coupled[256]; // (64 * 8) / (8 / 4)
 };
 
 struct q8_repack_1x2{
-    float s_low;
-    float s_high;
-    float scaled_sum_low;
-    float scaled_sum_high;
+    fp16_t s_low;
+    fp16_t s_high;
+    fp16_t scaled_sum_low;
+    fp16_t scaled_sum_high;
     int8_t q_low[32];
     int8_t q_high[32];
 };
