@@ -137,6 +137,131 @@ void bgemmGQA::forward(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float>
 
     PROFILE_END(formatted_profile_name);
 }
+
+
+void bgemmGQA::forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output)
+{
+    int bs = A.m_dim_x;
+    int m = A.m_dim_y;
+    int n = B.m_dim_y;
+    int k = A.m_dim_z;
+    const int groupsize = this->groupsize;
+
+    // Total FLOPS for profiling
+    const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
+    std::ostringstream oss;
+    std::string PhaseName;
+    if (m > 1) {
+        PhaseName = "P Stage";
+    } else {
+        PhaseName = "AG Stage";
+    }
+    oss << "[ " << PhaseName << "-qk-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    // oss << "[ " << PhaseName << "-qk-" << profile_name << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    // a: bs x m x k   key_view: bs x n x k   c: bs x m x n
+    int n_heads = bs;
+    if ( m > 1)
+    {
+        for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+        {
+            gemm_fp32_rcr(
+                A.data() + head_idx * m * k,  // A: bs x m x k
+                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
+                output.data() + head_idx * m * n,  // C: bs x m x n
+                m, n, k
+            );
+        }
+    }
+    else {
+        for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+        {
+            gemv_fp32_rcr(
+                A.data() + head_idx * m * k,  // A: bs x m x k
+                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
+                output.data() + head_idx * m * n,  // C: bs x m x n
+                m, n, k
+            );
+        }
+    }
+    PROFILE_START("apply scaling factor");
+    for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+    {
+        for (int i = 0; i < m; i++)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                output(head_idx, i, j) = output(head_idx, i, j) * this->alpha;
+            }
+        }
+    }
+    PROFILE_END("apply scaling factor");
+
+
+    PROFILE_END(formatted_profile_name);
+}
+
+void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output)
+{
+
+    const int m = A.m_dim_y, n = output.m_dim_z, k = A.m_dim_z, bs = A.m_dim_x;
+    const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
+    std::ostringstream oss;
+    std::string PhaseName;
+    if (m > 1)
+    {
+        PhaseName = "P Stage";
+    }
+    else {
+        PhaseName = "AG Stage";
+    }
+    oss << "[ " << PhaseName << "-pv-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    // oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    // a: bs x m x k   b: bs x k x n   c: bs x m x n
+    assert(A.m_dim_x == groupsize * B.m_dim_x);  // batch dim
+    assert(A.m_dim_z == B.m_dim_y);  // k
+    assert(A.m_dim_y == output.m_dim_y);  // m
+    assert(B.m_dim_z == output.m_dim_z);  // n
+
+    // zero out output
+    for (int i = 0; i < output.length(); i++)
+    {
+        output.data()[i] = 0;
+    }
+
+    int n_heads = bs;
+    if (m > 1)
+    {
+        for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+        {
+            gemm_fp32_rrr(
+                A.data() + head_idx * m * k,  // A: bs x m x k
+                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
+                output.data() + head_idx * m * n,  // C: bs x m x n
+                m, n, k
+            );
+        }
+    }
+    else{
+        for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+        {
+            gemv_fp32_rrr(
+                A.data() + head_idx * m * k,  // A: bs x m x k
+                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
+                output.data() + head_idx * m * n,  // C: bs x m x n
+                m, n, k
+            );
+        }
+    }
+
+    PROFILE_END(formatted_profile_name);
+}
+
 void bgemmGQA::forward_openblas_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
     int bs = A.m_dim_x;
     int m = A.m_dim_y;
@@ -153,8 +278,8 @@ void bgemmGQA::forward_openblas_qk(Matrix3D<float> &A, MatrixView<float> &B, Mat
     } else {
         PhaseName = "AG Stage";
     }
-    // oss << "[ " << PhaseName << "-qk-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
-    oss << "[ " << PhaseName << "-qk-" << profile_name << "]";
+    oss << "[ " << PhaseName << "-qk-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    // oss << "[ " << PhaseName << "-qk-" << profile_name << "]";
     std::string formatted_profile_name = oss.str();
     PROFILE_START_FLOPS(formatted_profile_name, ops);
 
@@ -255,8 +380,8 @@ void bgemmGQA::forward_openblas_pv(Matrix3D<float> &A, MatrixView<float> &B, Mat
     } else {
         PhaseName = "AG Stage";
     }
-    // oss << "[ " << PhaseName << "-pv-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
-    oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
+    oss << "[ " << PhaseName << "-pv-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    // oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
     std::string formatted_profile_name = oss.str();
     PROFILE_START_FLOPS(formatted_profile_name, ops);
 

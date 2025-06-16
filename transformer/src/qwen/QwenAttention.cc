@@ -172,7 +172,8 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // (num_head, sqlen, head_dim) x (num_head, final_sqlen, head_dim) -> (num_head, sqlen, final_sqlen)
     PROFILE_START(forward_profile_name + "::self-attention :: qk_bmm");
     // this->qk_bmm.forward(query_states, k_cache_view, attn_weights);
-    this->qk_bmm.forward_openblas_qk(query_states, k_cache_view, attn_weights);
+    // this->qk_bmm.forward_openblas_qk(query_states, k_cache_view, attn_weights);
+    this->qk_bmm.forward_ink_kernel_qk(query_states, k_cache_view, attn_weights);
     PROFILE_END(forward_profile_name + "::self-attention :: qk_bmm");
     PROFILE_START(forward_profile_name + "::self-attention :: batch_add");
     assert(not has_nan(attn_weights));
@@ -202,7 +203,8 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     Matrix3D<float> attn_output( num_q_head, bs * sqlen, head_dim);
     // TODO: there is a legacy implementation, need to check
     // this->pv_bmm.forward_weight_untransposed(attn_probs, v_cache_view, attn_output);
-    this->pv_bmm.forward_openblas_pv(attn_probs, v_cache_view, attn_output);
+    // this->pv_bmm.forward_openblas_pv(attn_probs, v_cache_view, attn_output);
+    this->pv_bmm.forward_ink_kernel_pv(attn_probs, v_cache_view, attn_output);
     PROFILE_END(forward_profile_name + "::self-attention :: pv_bmm");
     // step5: reshape output: (num_head, sqlen, head_dim) -> (1, sqlen, sqlen * head_dim)
     Matrix3D<float> attn_reshape = attn_output.permute01();

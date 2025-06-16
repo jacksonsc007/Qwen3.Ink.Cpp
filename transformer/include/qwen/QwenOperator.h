@@ -372,6 +372,8 @@ class bgemmGQA {
     bgemmGQA(){};
     void forward_openblas_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
     void forward_openblas_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
+    void forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
+    void forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
     void forward(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
     void forward_weight_untransposed(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output);
     float alpha;
@@ -403,5 +405,8 @@ void gemv_repack_A80W40(
     const int M, const int N, const int K
 );
 
-
+void gemm_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K);
+void gemv_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K);
+void gemm_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
+void gemv_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
 #endif
