@@ -6,6 +6,7 @@
 #include "QwenOperator.h"
 #include "lib.h"
 #include "operators.h"
+#include <omp.h>
 
 #define MEM_ALIGN 64
 #define UN_INIT -10.0
@@ -452,7 +453,7 @@ void gemm_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const
     }
 }
 
-void gemv_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K) {
+void gemv_fp32_rcr_mt_impl_1(float* A, float* B, float* C, const int M, const int N, const int K) {
     // PRAGMA_OMP_PARALLEL_FOR
     // PRAGMA_OMP_PARALLEL_FOR_GEMV
     #pragma omp parallel for num_threads(NTHREADS_GEMV)
@@ -466,5 +467,42 @@ void gemv_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const
             acc = _mm256_fmadd_ps(lhs, rhs, acc);
         }
         *C(0, j) = hsum_float_8(acc);
+    }
+}
+
+void kernel_per_thread(float* A, float* B, float* C, const int M, const int N, const int K, const int start_col, const int end_col) {
+    // PRAGMA_OMP_PARALLEL_FOR
+    for( int j = start_col; j < end_col; j++)
+    {
+        __m256 acc = _mm256_setzero_ps();
+        for( int p = 0; p < K; p+=8)
+        {
+            __m256 lhs = _mm256_loadu_ps(A(0, p));
+            __m256 rhs = _mm256_loadu_ps(B(p, j));
+            acc = _mm256_fmadd_ps(lhs, rhs, acc);
+        }
+        *C(0, j) = hsum_float_8(acc);
+    }
+}
+
+void gemv_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K)
+{
+    int actual_threads = 0;
+    #pragma omp parallel num_threads(4)
+    {
+        
+        // Check actual number of threads (only print from thread 0 to avoid multiple prints)
+        #pragma omp single
+        {
+            actual_threads = omp_get_num_threads();
+            // printf("Requested threads: %d, Actual threads: %d\n", NTHREADS, actual_threads);
+        }
+        int thread_idx = omp_get_thread_num();
+        int labor_per_thread = (N + actual_threads - 1) / actual_threads;
+        int start_col = (labor_per_thread) * thread_idx;
+        int end_col = (labor_per_thread) * (thread_idx + 1);
+        end_col = end_col > N? N: end_col;
+        // printf("start: %d, end:%d\n", start_col, end_col);
+        kernel_per_thread(A, B, C, M, N, K, start_col, end_col);
     }
 }

@@ -3,6 +3,14 @@
 #include "common.h"
 #include "operators.h"
 
+#ifndef NTHREADS
+#define NTHREADS 16
+#endif
+
+// openmp setting
+#define OMP_SCHEDULE dynamic
+#define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")
+
 /* void softmax(const Matrix3D<float> &input, Matrix3D<float> &output) {
     PROFILE_START("softmax");
     int len = input.length();
@@ -48,7 +56,8 @@ void softmax(const Matrix3D<float> &input, Matrix3D<float> &output) {
     const int sqlen = input.m_dim_y;
     const int context_len = input.m_dim_z;
 
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(2) num_threads(4)
+    // PRAGMA_OMP_PARALLEL_FOR
     for (int i = 0; i < n_heads; i++) {
         for (int j = 0; j < sqlen; j++) {
             // Find max value (first pass)

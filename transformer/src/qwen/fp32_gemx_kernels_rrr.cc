@@ -6,6 +6,7 @@
 #include "QwenOperator.h"
 #include "lib.h"
 #include "operators.h"
+#include <omp.h>
 
 #define MEM_ALIGN 64
 #define UN_INIT -10.0
@@ -13,6 +14,8 @@
 #ifndef NTHREADS
 #define NTHREADS 16
 #endif
+
+#define NTHREADS_GEMV 4
 
 #define MR 6
 #define NR 16
@@ -515,15 +518,48 @@ void gemm_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const
     }
 }
 
+void gemv_kernel_per_thread(float* A, float* B, float* C, const int M, const int N, const int K, int start_col, int end_col) {
+
+    for( int p = 0; p < K; p++)
+    {
+        for (int j = start_col; j < end_col; j+=8)
+        {
+            __m256 acc = _mm256_loadu_ps(C(0, j, N));
+            __m256 lhs = _mm256_set1_ps(*A(0, p, K));
+            __m256 rhs = _mm256_loadu_ps(B(p, j, N));
+            acc = _mm256_fmadd_ps(lhs, rhs, acc);
+            _mm256_storeu_ps(C(0, j, N), acc);
+        }
+
+    }
+}
 
 void gemv_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K) {
-    for (int i = 0; i < M; i++) {
-        for (int p = 0; p < K; p++)
+    int actual_threads = 0;
+    #pragma omp parallel num_threads(4)
+    {
+        
+        // Check actual number of threads (only print from thread 0 to avoid multiple prints)
+        #pragma omp single
         {
-            for (int j = 0; j < N; j++) 
-            {
-                *C(i, j, N) += *A(i, p, K) * *B(p, j, N);
-            }
+            actual_threads = omp_get_num_threads();
+            // printf("Requested threads: %d, Actual threads: %d\n", NTHREADS, actual_threads);
+        }
+        
+        int thread_idx = omp_get_thread_num();
+        int start_col = (N / actual_threads) * thread_idx;
+        int end_col = (N / actual_threads) * (thread_idx + 1);
+        gemv_kernel_per_thread(A, B, C, M, N, K, start_col, end_col);
+    }
+}
+
+void gemv_fp32_rrr_naive(float* A, float* B, float* C, const int M, const int N, const int K) {
+    for (int p = 0; p < K; p++)
+    {
+        for (int j = 0; j < N; j++) 
+        {
+            *C(0, j, N) += *A(0, p, K) * *B(p, j, N);
         }
     }
+
 }

@@ -205,6 +205,7 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // this->pv_bmm.forward_weight_untransposed(attn_probs, v_cache_view, attn_output);
     // this->pv_bmm.forward_openblas_pv(attn_probs, v_cache_view, attn_output);
     this->pv_bmm.forward_ink_kernel_pv(attn_probs, v_cache_view, attn_output);
+    // this->pv_bmm.forward_mix_kernel_pv(attn_probs, v_cache_view, attn_output);
     PROFILE_END(forward_profile_name + "::self-attention :: pv_bmm");
     // step5: reshape output: (num_head, sqlen, head_dim) -> (1, sqlen, sqlen * head_dim)
     Matrix3D<float> attn_reshape = attn_output.permute01();

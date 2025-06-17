@@ -7,6 +7,7 @@
 #include "utils.h"
 #include "QwenOperator.h"
 #include <cassert>
+#include <iostream>
 #include "operators.h"
 #include <blis/cblas.h>
 #include <cblas.h>
@@ -250,11 +251,112 @@ void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, M
     else{
         for (int head_idx = 0; head_idx < n_heads; head_idx ++)
         {
-            gemv_fp32_rrr(
+            // we find multi-threading does not help.
+            gemv_fp32_rrr_naive(
                 A.data() + head_idx * m * k,  // A: bs x m x k
                 &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
                 output.data() + head_idx * m * n,  // C: bs x m x n
                 m, n, k
+            );
+        }
+
+    }
+
+    PROFILE_END(formatted_profile_name);
+}
+
+
+
+#ifdef OPENBLAS
+
+void bgemmGQA::forward_mix_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output)
+{
+
+    const int m = A.m_dim_y, n = output.m_dim_z, k = A.m_dim_z, bs = A.m_dim_x;
+    const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
+    std::ostringstream oss;
+    std::string PhaseName;
+    if (m > 1)
+    {
+        PhaseName = "P Stage";
+    }
+    else {
+        PhaseName = "AG Stage";
+    }
+    oss << "[ " << PhaseName << "-pv-mixed_kernel" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    // oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    // a: bs x m x k   b: bs x k x n   c: bs x m x n
+    assert(A.m_dim_x == groupsize * B.m_dim_x);  // batch dim
+    assert(A.m_dim_z == B.m_dim_y);  // k
+    assert(A.m_dim_y == output.m_dim_y);  // m
+    assert(B.m_dim_z == output.m_dim_z);  // n
+
+    // zero out output
+    for (int i = 0; i < output.length(); i++)
+    {
+        output.data()[i] = 0;
+    }
+
+    // Prepare array of pointers to A, B, and C matrices
+    float **A_pointers = new float*[bs];
+    float **B_pointers = new float*[bs];
+    float **C_pointers = new float*[bs];
+    // Populate pointers
+    for (int i = 0; i < bs; ++i) {
+        A_pointers[i] = A.data() + i * m * k;
+
+        // Each group shares B matrices
+        int b_index = i / groupsize;
+        // NOTE: memory layout is not contiguous inside matrixview
+        // B_pointers[i] = B.data() + b_index * n * k;
+        B_pointers[i] = &B(b_index, 0, 0);
+
+        C_pointers[i] = output.data() + i * m * n;
+    }
+
+    const float alpha = 1;
+    const float beta = 0.0f;  // We don't reuse output
+    int n_heads = bs;
+    if (m > 1)
+    {
+        for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+        {
+            gemm_fp32_rrr(
+                A_pointers[head_idx],
+                B_pointers[head_idx],
+                C_pointers[head_idx],
+                m, n, k
+            );
+        }
+    }
+    else{
+        // Loop over all batchesm * k
+        // A: (bs, m=1, k) = (bs, 1, k)
+        // B: row-major (bs, k, n); View as column-major (bs, n, k)
+        for (int i = 0; i < bs; ++i) {
+            float* a = A_pointers[i];
+            float* b_matrix = B_pointers[i];
+            // Output scalar for this batch
+            float* c = C_pointers[i];
+
+            // Perform dot product between A[i] and each row of B[b_index]
+            // This is equivalent to: cblas_sgemv with transposed B
+            cblas_sgemv( 
+                CblasColMajor,
+                CblasNoTrans,      // B^T * A
+                n,                    // Number of rows in B
+                k,                    // Number of cols in B
+                alpha,             // alpha
+                b_matrix,             // B matrix
+                n,                  // leading dimension of B (cols)  
+                a,                    // A vector (length n)
+                1,                 // stride
+                beta,              // beta
+                c,                    // result scalar
+                1                  // stride
             );
         }
     }
@@ -262,7 +364,6 @@ void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, M
     PROFILE_END(formatted_profile_name);
 }
 
-#ifdef openblas
 void bgemmGQA::forward_openblas_qk(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
     int bs = A.m_dim_x;
     int m = A.m_dim_y;
@@ -529,7 +630,7 @@ Matrix3D<float> Qwen3SiLuMul(const Matrix3D<float> &a, const Matrix3D<float> &b)
     float * output_ptr = output.data();
     const float * a_ptr = a.data();
     const float * b_ptr = b.data();
-    #pragma omp parallel for simd
+    #pragma omp parallel for simd num_threads(16)
     for (int i = 0; i < len; i++) {
         float v = a_ptr[i];
         float silu_v = v * (1.0 / (1.0 + exp(-1 * v)));
