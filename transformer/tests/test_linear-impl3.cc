@@ -200,7 +200,7 @@ int main() {
     printf("%f vs %f\n", a, a_);
 
     test_linear_implementation_correctness();
-    test_linear_implementation_throughput(1024, 1024, 1024);
+    // test_linear_implementation_throughput(1024, 1024, 1024);
     test_linear_implementation_throughput(320, 12288, 4096);
     // test_linear_implementation_throughput(320, 1024, 4096);
     Profiler::getInstance().report_internal();

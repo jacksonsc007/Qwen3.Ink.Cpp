@@ -269,6 +269,10 @@ struct q4_repack_2x8{
     fp16_t s_high[8];
     fp16_t min_low[8];
     fp16_t min_high[8];
+    float s_low_fp32[8];
+    float s_high_fp32[8];
+    float min_low_fp32[8];
+    float min_high_fp32[8];
     uint8_t q_coupled[256]; // (64 * 8) / (8 / 4)
 };
 
@@ -277,6 +281,10 @@ struct q8_repack_1x2{
     fp16_t s_high;
     fp16_t scaled_sum_low;
     fp16_t scaled_sum_high;
+    float s_low_fp32;
+    float s_high_fp32;
+    float scaled_sum_low_fp32;
+    float scaled_sum_high_fp32;
     int8_t q_low[32];
     int8_t q_high[32];
 };
