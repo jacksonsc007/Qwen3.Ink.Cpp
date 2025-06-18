@@ -10,7 +10,7 @@ class Embedding {
             lookup = Matrix3D<float>(1, voc_size_, embed_dim_);
         }
     Embedding(){};
-    Matrix3D<float> forward(Matrix3D<int> input_id);
+    Matrix3D<float> forward(Matrix3D<int>* input_id);
     void load(std::string path);
     int embed_dim, voc_size;
     Matrix3D<float> lookup;

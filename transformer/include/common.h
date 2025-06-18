@@ -101,6 +101,7 @@ class Matrix3D {
 
     // Constructor with dimensions - allocates memory
     Matrix3D(int dim_x, int dim_y, int dim_z) : m_dim_x(dim_x), m_dim_y(dim_y), m_dim_z(dim_z) {
+        IF_DEBUG( printf("\e[31m[INFO]\e[m Constructor with dimensions\n"););
         assert(m_dim_x >= 0 && m_dim_y >= 0 && m_dim_z >= 0);
         if (size() > 0) {
             m_data = std::make_unique<T[]>(size());
@@ -109,6 +110,7 @@ class Matrix3D {
 
     // Option 1: Safe version that always copies data
     Matrix3D(const T* data, int dim_x, int dim_y, int dim_z) : Matrix3D(dim_x, dim_y, dim_z) {
+        IF_DEBUG( printf("\e[31m[INFO]\e[m Constructor with dimension and copy from data\n"););
         if (data && size() > 0) {
             std::copy(data, data + size(), m_data.get());
         }
@@ -116,18 +118,20 @@ class Matrix3D {
 
     // Option 2: Separate constructor for external data (NOT RECOMMENDED)
     // Only use if you absolutely need to wrap external memory
-    Matrix3D(T* external_data, int dim_x, int dim_y, int dim_z, std::false_type /*dummy*/)
-        : m_data(external_data, [](T*) {}),  // Custom deleter that does nothing
-          m_dim_x(dim_x),
-          m_dim_y(dim_y),
-          m_dim_z(dim_z) {
-        if (!external_data) {
-            throw std::invalid_argument("External data pointer cannot be null");
-        }
-    }
+    // Matrix3D(T* external_data, int dim_x, int dim_y, int dim_z, std::false_type /*dummy*/)
+    //     : m_data(external_data, [](T*) {}),  // Custom deleter that does nothing
+    //       m_dim_x(dim_x),
+    //       m_dim_y(dim_y),
+    //       m_dim_z(dim_z) {
+    //     if (!external_data) {
+    //         throw std::invalid_argument("External data pointer cannot be null");
+    //     }
+    // }
 
     // Copy constructor
     Matrix3D(const Matrix3D<T>& other) : m_dim_x(other.m_dim_x), m_dim_y(other.m_dim_y), m_dim_z(other.m_dim_z) {
+        IF_DEBUG( printf("\e[31m[INFO]\e[m Copy Constructor\n"););
+        // printf("\e[31m[INFO]\e[m Copy Constructor\n");
         m_data = std::make_unique<T[]>(other.size());
         std::copy(other.data(), other.data() + other.size(), m_data.get());
     }
@@ -135,6 +139,7 @@ class Matrix3D {
     // Move constructor
     Matrix3D(Matrix3D<T>&& other) noexcept
         : m_data(std::move(other.m_data)), m_dim_x(other.m_dim_x), m_dim_y(other.m_dim_y), m_dim_z(other.m_dim_z) {
+        IF_DEBUG( printf("\e[31m[INFO]\e[m Move Constructor\n"););
         other.m_dim_x = 0;
         other.m_dim_y = 0;
         other.m_dim_z = 0;
@@ -142,8 +147,9 @@ class Matrix3D {
 
     // Copy assignment
     Matrix3D& operator=(const Matrix3D<T>& other) {
+        IF_DEBUG( printf("\e[31m[INFO]\e[m Copy Assignment\n"););
+        // printf("\e[31m[INFO]\e[m Copy Assignment\n");
         if (this == &other) return *this;
-
         // Create temporary and swap
         Matrix3D temp(other);
         swap(*this, temp);
@@ -152,6 +158,7 @@ class Matrix3D {
 
     // Move assignment
     Matrix3D& operator=(Matrix3D<T>&& other) noexcept {
+        IF_DEBUG( printf("\e[31m[INFO]\e[m Move Assignment\n"););
         if (this == &other) return *this;
 
         m_data = std::move(other.m_data);
@@ -168,6 +175,7 @@ class Matrix3D {
 
     // Swap function for copy-and-swap idiom
     friend void swap(Matrix3D<T>& first, Matrix3D<T>& second) noexcept {
+        IF_DEBUG( printf("\e[31m[INFO]\e[m Swap Function\n"););
         using std::swap;
         swap(first.m_data, second.m_data);
         swap(first.m_dim_x, second.m_dim_x);
@@ -175,15 +183,15 @@ class Matrix3D {
         swap(first.m_dim_z, second.m_dim_z);
     }
 
-    Matrix3D bind(T* data, int x, int y, int z) {
-        Matrix3D output;
-        return output;
-    }
+    // Matrix3D bind(T* data, int x, int y, int z) {
+    //     Matrix3D output;
+    //     return output;
+    // }
 
     // concatenate two matrix along x dim
     Matrix3D cat(Matrix3D other) {
-        assert(other.m_dim_y = m_dim_y);
-        assert(other.m_dim_z = m_dim_z);
+        assert(other.m_dim_y == m_dim_y);
+        assert(other.m_dim_z == m_dim_z);
         Matrix3D output = Matrix3D(other.m_dim_x + m_dim_x, m_dim_y, m_dim_z);
         std::copy(m_data.get(), m_data.get() + size(), output.data());
         std::copy(other.data(), other.data() + other.size(), output.data() + size());
@@ -192,7 +200,7 @@ class Matrix3D {
 
     // exchange dimension 0 and 1
     Matrix3D permute01() {
-        PROFILE_START("QwenAttention::permute");
+        PROFILE_START("permute");
         const int dim_x = m_dim_y;  // Swapped dimensions
         const int dim_y = m_dim_x;
         const int dim_z = m_dim_z;
@@ -214,7 +222,7 @@ class Matrix3D {
             }
         }
 
-        PROFILE_END("QwenAttention::permute");
+        PROFILE_END("permute");
         return after;
     }
 

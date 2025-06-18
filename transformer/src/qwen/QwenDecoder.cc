@@ -58,7 +58,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
     cur_sqlen should be 1 at autoregressive generation stage;
     past_sqlen records the total number of processed token length.
     */
-    int cur_sqlen = input.input_ids.m_dim_z;
+    int cur_sqlen = input.input_ids->m_dim_z;
     int past_sqlen = input.past_sqlen;
 
     // ---
@@ -96,9 +96,9 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
         IF_DEBUG(
             printf("\e[31m[INFO]\e[m evaluating layer %d ... \n", i);
         );
-        struct Qwen3DecoderLayer_Input  layer_input   = {hidden_states, attn_mask, past_sqlen};
+        struct Qwen3DecoderLayer_Input  layer_input   = {&hidden_states, &attn_mask, past_sqlen};
         struct Qwen3DecoderLayer_Output layer_output = this->layers[i].forward(layer_input);
-        hidden_states = layer_output.hidden_states;
+        hidden_states = std::move(layer_output.hidden_states);
         
         IF_DEBUG_IO(
              std::ostringstream oss;
@@ -129,7 +129,7 @@ Qwen3Model_Output Qwen3Model::forward(const struct Qwen3Model_Input &input) {
         last_hidden_states.statistics();
     );
 
-    struct Qwen3Model_Output output  = {last_hidden_states}; 
+    struct Qwen3Model_Output output( std::move(last_hidden_states)); 
     PROFILE_END(this->profile_name);
     return output;
 }

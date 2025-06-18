@@ -11,14 +11,23 @@
 
 struct Qwen3Model_Output {
     Matrix3D<float> last_hidden_state;
+    
+    Qwen3Model_Output(Matrix3D<float> && last_hidden_state):last_hidden_state(std::move(last_hidden_state))
+    {}
+    Qwen3Model_Output(const Qwen3Model_Output &) = delete;
+    Qwen3Model_Output & operator=(const Qwen3Model_Output &) = delete;
+
+    Qwen3Model_Output(Qwen3Model_Output &&) = default;
+    Qwen3Model_Output & operator=(Qwen3Model_Output &&) = default;
+
 };
 
 struct Qwen3Model_Input {
-    Matrix3D<int> input_ids;
+    Matrix3D<int> * input_ids;
     int past_sqlen;
 
     Qwen3Model_Input(
-        Matrix3D<int> input_ids_,
+        Matrix3D<int>* input_ids_,
         int past_sqlen_
     ): input_ids(input_ids_), past_sqlen(past_sqlen_)
     {

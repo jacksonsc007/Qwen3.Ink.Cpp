@@ -11,10 +11,7 @@
 #include <stdexcept>
 #include "ggml-impl.h"
 
-bool has_nan(Matrix3D<float> mat);
-void permute01(Matrix3D<float> before, Matrix3D<float> after);
-void reshape_headfirst(Matrix3D<float> before, Matrix3D<float> after);
-void reshape_seqfirst(Matrix3D<float> before, Matrix3D<float> after);
+bool has_nan(Matrix3D<float> &mat);
 
 
 
@@ -403,7 +400,7 @@ class Qwen_Linear_with_bias_Int4
         weight_repack = nullptr;
     };
 
-    Matrix3D<float> forward( Matrix3D<float> &activation);
+    Matrix3D<float> forward( const Matrix3D<float> &activation);
     // method to evaluate the correctness optimization method
     void forward_reference(const Matrix3D<float> &x, Matrix3D<float> &output);
     // void initialize_memory(const int block_size);
@@ -449,7 +446,7 @@ void load_BMM_F32T(bgemmGQA &op, std::string prefix);
 
 Matrix3D<float> Qwen3SiLuMul(const Matrix3D<float> &a, const Matrix3D<float> &b) ;
 
-Matrix3D<float> add(const Matrix3D<float> a, const Matrix3D<float> b) ;
+Matrix3D<float> add(Matrix3D<float> &a, Matrix3D<float> &b) ;
 
 
 void quantize_row_q8_0_repack(const float * x, void * vy, int64_t k);

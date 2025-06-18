@@ -358,14 +358,13 @@ std::vector<int> Pipeline::generate(const std::string& text, const qwen_params& 
         PROFILE_START(PhaseName);
         
         Matrix3D<int> input_ids_mat(input_ids.data(), 1, 1, sqlen);
-        Qwen3ForCausalLM_Input model_input = {input_ids_mat};
+        Qwen3ForCausalLM_Input model_input = {&input_ids_mat};
         Qwen3ForCausalLM_Output model_output = model->forward(model_input);
-        PROFILE_END(PhaseName);
         
-        Matrix3D<float> last_token_logits = model_output.logits;
+        Matrix3D<float> & last_token_logits = model_output.logits;
         memcpy(logits.data(), last_token_logits.data(), vocab_size*sizeof(float));
 
-        PROFILE_START("[ Sampling ]");
+        PROFILE_START(PhaseName + ": Sampling");
         std::vector<token_data> candidates;
         candidates.reserve(vocab_size);
         for (int token_id = 0; token_id < vocab_size; token_id++) {
@@ -412,8 +411,9 @@ std::vector<int> Pipeline::generate(const std::string& text, const qwen_params& 
                 next_token_id = sample_token(&candidiate_p);
             }
         }
-        PROFILE_END("[ Sampling ]");
+        PROFILE_END(PhaseName + ": Sampling");
 
+        PROFILE_END(PhaseName);
         if (next_token_id == config.eos_token_id) {
             printf("\e[31m[INFO]\e[m EOS detected\n");
             stop_generation_tolerance--;

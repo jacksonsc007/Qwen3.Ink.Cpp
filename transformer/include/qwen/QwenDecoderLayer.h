@@ -5,11 +5,11 @@
 #include "QwenAttention.h"
 
 struct Qwen3DecoderLayer_Input{
-    Matrix3D<float> hidden_states_arr;
-    Matrix3D<float> attention_mask;
+    Matrix3D<float>* hidden_states_arr;
+    Matrix3D<float>* attention_mask;
     int past_sqlen;
 
-    Qwen3DecoderLayer_Input(Matrix3D<float> &hidden_states_, Matrix3D<float> &attention_mask_, int past_sqlen_) {
+    Qwen3DecoderLayer_Input(Matrix3D<float> *hidden_states_, Matrix3D<float> *attention_mask_, int past_sqlen_) {
         hidden_states_arr = hidden_states_;
         attention_mask = attention_mask_;
         past_sqlen = past_sqlen_;
@@ -18,12 +18,15 @@ struct Qwen3DecoderLayer_Input{
 };
 struct Qwen3DecoderLayer_Output{
     Matrix3D<float> hidden_states;
-    Matrix3D<float> attentions;
 
-    Qwen3DecoderLayer_Output(Matrix3D<float> hidden_states_, Matrix3D<float> attentions_) {
-        hidden_states = hidden_states_;
-        attentions = attentions_;
-    };
+    Qwen3DecoderLayer_Output(Matrix3D<float> &&hidden_states_): hidden_states(std::move(hidden_states_)){};
+
+    Qwen3DecoderLayer_Output(const Qwen3DecoderLayer_Output & ) = delete;
+    Qwen3DecoderLayer_Output & operator=(const Qwen3DecoderLayer_Output &) = delete;
+
+    Qwen3DecoderLayer_Output(Qwen3DecoderLayer_Output &&) = default;
+    Qwen3DecoderLayer_Output & operator=(Qwen3DecoderLayer_Output &&) = default;
+    
 };
 
 class Qwen3DecoderLayer{

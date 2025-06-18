@@ -1,6 +1,6 @@
 #include "operators.h"
 
-void batch_Add(const Matrix3D<float> &input, const Matrix3D<float> &input2,Matrix3D<float> &output) {
+void batch_Add(const Matrix3D<float> &input, const Matrix3D<float> &input2, Matrix3D<float> &output) {
     PROFILE_START("batch_Add");
     assert(input.m_dim_y == input2.m_dim_y);
     assert(input.m_dim_z == input2.m_dim_z);

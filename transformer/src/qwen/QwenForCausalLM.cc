@@ -12,7 +12,6 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
     // -----------------------------
     // 1st stage: setting paras and buffers
     // -----------------------------
-    struct Qwen3Model_Output decoder_output;
 
     // -----------------------------
     // 2nd stage: evaluate decoder
@@ -20,7 +19,7 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
     PROFILE_START(profile_name + "::decoder");
     // autoregressive generation stage
     struct Qwen3Model_Input decoder_input = {input.input_ids, past_sqlen};
-    decoder_output = this->model.forward(decoder_input);
+    struct Qwen3Model_Output decoder_output = this->model.forward(decoder_input);
     PROFILE_END(profile_name + "::decoder");
 
     // -----------------------------
@@ -52,10 +51,10 @@ struct Qwen3ForCausalLM_Output Qwen3ForCausalLM::forward(const struct Qwen3ForCa
     // -----------------------------
     // 4th stage: Record processed sqlen
     // -----------------------------
-    int input_sqlen = input.input_ids.size();
+    int input_sqlen = input.input_ids->size();
     past_sqlen += input_sqlen;
 
-    Qwen3ForCausalLM_Output output = {logits};
+    Qwen3ForCausalLM_Output output(std::move(logits));
     return output;
 }
 

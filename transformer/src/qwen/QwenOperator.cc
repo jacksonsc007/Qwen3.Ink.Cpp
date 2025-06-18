@@ -54,11 +54,13 @@ Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
 
 
 
-Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation) {
+Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &activation) {
     const int bs = activation.m_dim_x;
     const int m = activation.m_dim_y, n = weight_cols, k = activation.m_dim_z, b_size = activation.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
+    PROFILE_START("[" + profile_name + " ::" + "create output]");
     Matrix3D<float> output (bs, m, n);
+    PROFILE_END("[" + profile_name + " ::" + "create output]");
     std::ostringstream oss;
     oss << "[" << profile_name << ": " << m << " x " << n << " x " << k << "]";
     std::string formatted_profile_name = oss.str();
@@ -639,7 +641,7 @@ Matrix3D<float> Qwen3SiLuMul(const Matrix3D<float> &a, const Matrix3D<float> &b)
     return output;
 }
 
-Matrix3D<float> add(const Matrix3D<float> a, const Matrix3D<float> b) {
+Matrix3D<float> add(Matrix3D<float> &a, Matrix3D<float> &b) {
     assert(a.length() == b.length());
     Matrix3D result = a.as_shape();
     for (int i = 0; i < a.length(); i++) {
@@ -648,7 +650,7 @@ Matrix3D<float> add(const Matrix3D<float> a, const Matrix3D<float> b) {
     return result;
 }
 
-bool has_nan(Matrix3D<float> mat)
+bool has_nan(Matrix3D<float> & mat)
 {
     bool res = false;
     int m_dim_x = mat.m_dim_x;

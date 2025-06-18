@@ -8,15 +8,21 @@
 #include "operators.h"
 
 struct Qwen3ForCausalLM_Input {
-    Matrix3D<int> input_ids;
+    Matrix3D<int> * input_ids;
 
     Qwen3ForCausalLM_Input(
-        Matrix3D<int> input_ids_
+        Matrix3D<int> * input_ids_
     ) : input_ids(input_ids_) {}
 };
 
 struct Qwen3ForCausalLM_Output {
     Matrix3D<float> logits;
+    Qwen3ForCausalLM_Output(Matrix3D<float> && logits):logits(std::move(logits)){}
+    Qwen3ForCausalLM_Output(const Qwen3ForCausalLM_Output &) = delete;
+    Qwen3ForCausalLM_Output & operator=(const Qwen3ForCausalLM_Output &) = delete;
+
+    Qwen3ForCausalLM_Output(Qwen3ForCausalLM_Output &&) = default;
+    Qwen3ForCausalLM_Output & operator=(Qwen3ForCausalLM_Output &&) = default;
 };
 
 

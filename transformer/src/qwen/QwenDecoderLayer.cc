@@ -38,9 +38,9 @@ Qwen3DecoderLayer::Qwen3DecoderLayer(ModelContext * ctx, std::string param_path,
 
 Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Input &input)
 {
-    int bs = input.hidden_states_arr.m_dim_x;
-    int sqlen = input.hidden_states_arr.m_dim_y;
-    int embed_dim = input.hidden_states_arr.m_dim_z;
+    int bs = input.hidden_states_arr->m_dim_x;
+    int sqlen = input.hidden_states_arr->m_dim_y;
+    int embed_dim = input.hidden_states_arr->m_dim_z;
     if (sqlen > 1)
     {
         forward_profile_name = "[ P Stage ]: " + profile_name;
@@ -54,7 +54,7 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     // -----------------------------
     // 1st stage: layernorm
     // -----------------------------
-    Matrix3D<float> hidden_states = input_layernorm.forward(input.hidden_states_arr);
+    Matrix3D<float> hidden_states = input_layernorm.forward(*input.hidden_states_arr);
     PROFILE_END(forward_profile_name + "::input layernorm");
 
     // -----------------------------
@@ -62,13 +62,15 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
     // -----------------------------
     PROFILE_START(forward_profile_name + "::self-attention");
     Qwen3Attention_Input attn_param(
-        hidden_states,
+        &hidden_states,
         input.attention_mask,
         this->layer_idx,
         input.past_sqlen
     );
+    IF_DEBUG(printf("\e[32m[attn start]\e[m \n");)
     Qwen3Attention_Output attn_output = this->attn.forward(attn_param);
-    Matrix3D<float> residual_out =  add(input.hidden_states_arr, attn_output.attn_output);
+    IF_DEBUG(printf("\e[32m[attn end]\e[m \n");)
+    Matrix3D<float> residual_out =  add(*input.hidden_states_arr, attn_output.attn_output);
     PROFILE_END(forward_profile_name + "::self-attention");
 
     // -----------------------------
@@ -111,7 +113,7 @@ Qwen3DecoderLayer_Output Qwen3DecoderLayer::forward(const Qwen3DecoderLayer_Inpu
         down_proj_output.statistics();
         residual_out.statistics();
     );
-    struct Qwen3DecoderLayer_Output output(residual_out, attn_output.attn_probs_reshaped);
+    struct Qwen3DecoderLayer_Output output(std::move(residual_out));
     PROFILE_END(forward_profile_name);
     return output;
 }
