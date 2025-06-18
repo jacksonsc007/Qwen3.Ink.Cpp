@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "QwenOperator.h"
+#include "ggml-impl.h"
 #include "lib.h"
 #include "operators.h"
 
@@ -358,8 +359,10 @@ void gemm_repack_A81W41(
     // how many q8_repack blocks along the M dimension
     int nb_m = M; // M is a multiple of 6 for this implementation
     PRAGMA_OMP_PARALLEL_FOR
-    for (int i = 0; i < nb_m; i += 6)
+    for(int j = 0; j < nb_n; j++)
     {
+        for (int i = 0; i < nb_m; i += 6)
+        {
         int valid_rows = min(6, nb_m - i);
         struct q8_repack_1x2 * A_ptr = A_ptr_start + i * nb_k;
         struct q8_repack_1x2 * A_ptr_next = A_ptr_start + (i + 1) * nb_k;
@@ -367,8 +370,6 @@ void gemm_repack_A81W41(
         struct q8_repack_1x2 * A_ptr_next3 = A_ptr_start + (i + 3) * nb_k;
         struct q8_repack_1x2 * A_ptr_next4 = A_ptr_start + (i + 4) * nb_k;
         struct q8_repack_1x2 * A_ptr_next5 = A_ptr_start + (i + 5) * nb_k;
-        for(int j = 0; j < nb_n; j++)
-        {
             struct q4_repack_2x8 * B_ptr = B_ptr_start + j * nb_k;
             
             __m256 acc_row0 = _mm256_setzero_ps();
@@ -453,40 +454,40 @@ void gemm_repack_A81W41(
                 }
                 
                 // load scaleing factors
-                __m256 sB_low    = GGML_F32Cx8_LOAD ( B_block.s_low   ); 
-                __m256 sB_high   = GGML_F32Cx8_LOAD ( B_block.s_high  ); 
-                __m256 minB_low  = GGML_F32Cx8_LOAD ( B_block.min_low ); 
-                __m256 minB_high = GGML_F32Cx8_LOAD ( B_block.min_high);
+                __m256 sB_low = GGML_F32Cx8_LOAD(B_block.s_low);
+                __m256 sB_high = GGML_F32Cx8_LOAD(B_block.s_high);
+                __m256 minB_low = GGML_F32Cx8_LOAD(B_block.min_low);
+                __m256 minB_high = GGML_F32Cx8_LOAD(B_block.min_high);
 
-                __m256 sA_low                = BROADCAST_FP16_FP32 ( A_ptr       [ blk_id ] .s_low           ); 
-                __m256 sA_high               = BROADCAST_FP16_FP32 ( A_ptr       [ blk_id ] .s_high          ); 
-                __m256 scaled_sum_low        = BROADCAST_FP16_FP32 ( A_ptr       [ blk_id ] .scaled_sum_low  ); 
-                __m256 scaled_sum_high       = BROADCAST_FP16_FP32 ( A_ptr       [ blk_id ] .scaled_sum_high );
+                __m256 sA_low = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].s_low));
+                __m256 sA_high = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].s_high));
+                __m256 scaled_sum_low = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next           = BROADCAST_FP16_FP32 ( A_ptr_next  [ blk_id ] .s_low           ); 
-                __m256 sA_high_next          = BROADCAST_FP16_FP32 ( A_ptr_next  [ blk_id ] .s_high          ); 
-                __m256 scaled_sum_low_next   = BROADCAST_FP16_FP32 ( A_ptr_next  [ blk_id ] .scaled_sum_low  ); 
-                __m256 scaled_sum_high_next  = BROADCAST_FP16_FP32 ( A_ptr_next  [ blk_id ] .scaled_sum_high ); 
+                __m256 sA_low_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].s_low));
+                __m256 sA_high_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].s_high));
+                __m256 scaled_sum_low_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next2          = BROADCAST_FP16_FP32 ( A_ptr_next2 [ blk_id ] .s_low           ); 
-                __m256 sA_high_next2         = BROADCAST_FP16_FP32 ( A_ptr_next2 [ blk_id ] .s_high          ); 
-                __m256 scaled_sum_low_next2  = BROADCAST_FP16_FP32 ( A_ptr_next2 [ blk_id ] .scaled_sum_low  ); 
-                __m256 scaled_sum_high_next2 = BROADCAST_FP16_FP32 ( A_ptr_next2 [ blk_id ] .scaled_sum_high );
+                __m256 sA_low_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].s_low));
+                __m256 sA_high_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].s_high));
+                __m256 scaled_sum_low_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next3          = BROADCAST_FP16_FP32 ( A_ptr_next3 [ blk_id ] .s_low           ); 
-                __m256 sA_high_next3         = BROADCAST_FP16_FP32 ( A_ptr_next3 [ blk_id ] .s_high          ); 
-                __m256 scaled_sum_low_next3  = BROADCAST_FP16_FP32 ( A_ptr_next3 [ blk_id ] .scaled_sum_low  ); 
-                __m256 scaled_sum_high_next3 = BROADCAST_FP16_FP32 ( A_ptr_next3 [ blk_id ] .scaled_sum_high ); 
+                __m256 sA_low_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].s_low));
+                __m256 sA_high_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].s_high));
+                __m256 scaled_sum_low_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next4          = BROADCAST_FP16_FP32 ( A_ptr_next4 [ blk_id ] .s_low           ); 
-                __m256 sA_high_next4         = BROADCAST_FP16_FP32 ( A_ptr_next4 [ blk_id ] .s_high          ); 
-                __m256 scaled_sum_low_next4  = BROADCAST_FP16_FP32 ( A_ptr_next4 [ blk_id ] .scaled_sum_low  ); 
-                __m256 scaled_sum_high_next4 = BROADCAST_FP16_FP32 ( A_ptr_next4 [ blk_id ] .scaled_sum_high ); 
+                __m256 sA_low_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].s_low));
+                __m256 sA_high_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].s_high));
+                __m256 scaled_sum_low_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next5          = BROADCAST_FP16_FP32 ( A_ptr_next5 [ blk_id ] .s_low           ); 
-                __m256 sA_high_next5         = BROADCAST_FP16_FP32 ( A_ptr_next5 [ blk_id ] .s_high          ); 
-                __m256 scaled_sum_low_next5  = BROADCAST_FP16_FP32 ( A_ptr_next5 [ blk_id ] .scaled_sum_low  ); 
-                __m256 scaled_sum_high_next5 = BROADCAST_FP16_FP32 ( A_ptr_next5 [ blk_id ] .scaled_sum_high );
+                __m256 sA_low_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].s_low));
+                __m256 sA_high_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].s_high));
+                __m256 scaled_sum_low_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].scaled_sum_high));
 
                 __m256 s_low = _mm256_mul_ps(sA_low, sB_low);
                 __m256 s_high = _mm256_mul_ps(sA_high, sB_high);

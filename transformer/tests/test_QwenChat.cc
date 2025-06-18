@@ -50,6 +50,20 @@ int main(int argc, char** argv)
     std::string target_model = "qwen3-8b-A81W41";
     LinearKernelType kernel_type = A81W41;
 
+    // NOTE: we must call ggml_init before invoking GGML_FP16_TO_FP32
+    const int ctx_size = 0;
+    struct ggml_init_params params = {
+        /*.mem_size   =*/ ctx_size,
+        /*.mem_buffer =*/ NULL,
+        /* no_alloc   =*/ 0
+    };
+
+    struct ggml_context * ctx;
+    ctx = ggml_init(params);
+    if (!ctx) {
+        fprintf(stderr, "%s: ggml_init() failed\n", __func__);
+        return 1;
+    }
     
     printf("\e[31m[INFO]\e[m Loading Model ...\n");
     std::string model_path = MODEL_REPOSITORY[kernel_type].model_path;

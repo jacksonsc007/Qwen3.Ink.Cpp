@@ -4,8 +4,6 @@
 #include <cstdio>
 
 #include "common.h"
-#include "ggml-impl.h"
-#include "ggml.h"
 #include "operators.h"
 #include "utils.h"
 #include "utils_memalloc.h"
@@ -155,12 +153,12 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     auto start_time = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_iterations; ++i)
     {
-        PROFILE_START_FLOPS(formatted_profile_name, ops);
+        // PROFILE_START_FLOPS(formatted_profile_name, ops);
          gemm_repack_A81W41(
             A_repack, weight_repack.data(), output.data(),
             m, n, k
         );
-        PROFILE_END(formatted_profile_name);
+        // PROFILE_END(formatted_profile_name);
     }
     auto end_time = std::chrono::high_resolution_clock::now();
     
@@ -174,34 +172,15 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     printf("Throughput measurement for %s:\n", formatted_profile_name.c_str());
     printf("  Total time: %.6f seconds\n", total_time_seconds);
     printf("  Average time per iteration: %.6f seconds\n", avg_time_per_iteration);
-    printf("  Total operations: %f\n", total_ops);
+    printf("  Total operations: %lld\n", total_ops);
     printf("  Throughput: %.2f GFLOPS\n", throughput_gflops);
     printf("  Matrix dimensions: %d x %d x %d\n", m, n, k);
 }
 
 int main() {
-    // NOTE: we must call ggml_init before invoking GGML_FP16_TO_FP32
-    const int ctx_size = 0;
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ ctx_size,
-        /*.mem_buffer =*/ NULL,
-        /* no_alloc   =*/ 0
-    };
-
-    struct ggml_context * ctx;
-    ctx = ggml_init(params);
-    if (!ctx) {
-        fprintf(stderr, "%s: ggml_init() failed\n", __func__);
-        return 1;
-    }
-    float a = 1.30;
-    ggml_fp16_t a_fp16 = GGML_FP32_TO_FP16(a);
-    float a_ = GGML_FP16_TO_FP32(a_fp16);
-    printf("%f vs %f\n", a, a_);
-
-    test_linear_implementation_correctness();
-    test_linear_implementation_throughput(1024, 1024, 1024);
-    // test_linear_implementation_throughput(320, 12288, 4096);
+    // test_linear_implementation_correctness();
+    // test_linear_implementation_throughput(1024, 1024, 1024);
+    test_linear_implementation_throughput(320, 12288, 4096);
     // test_linear_implementation_throughput(320, 1024, 4096);
     Profiler::getInstance().report_internal();
 }

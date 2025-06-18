@@ -2,10 +2,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstdio>
+#include <immintrin.h>
 
 #include "common.h"
-#include "ggml-impl.h"
-#include "ggml.h"
 #include "operators.h"
 #include "utils.h"
 #include "utils_memalloc.h"
@@ -101,40 +100,48 @@ void test_linear_implementation_correctness() {
     output_linear.compare_with_gt(output_gt_path);
 }
 
-void test_linear_implementation_throughput(int m, int n, int k) {
-    Matrix3D<float> activation(1, m, k);
-    Matrix3D<float> weight(1, n, k);
-    Matrix3D<float> output(1, m, n);
-    Matrix3D<float> activation_repack(1, m, k);
-    Matrix3D<float> weight_repack(1, n, k);
+// void test_linear_implementation_throughput(int m, int n, int k) {
+void test_linear_implementation_throughput() {
+    const int MEM_ALIGN = 64;
+    const int m = 1024;
+    const int n = 1024;
+    const int k = 1024;
+    
+    
+    // Allocate memory using _mm_malloc with 64-byte alignment
+    float* activation_data = static_cast<float*>(_mm_malloc(m * k * sizeof(float), MEM_ALIGN));
+    float* weight_data = static_cast<float*>(_mm_malloc(n * k * sizeof(float), MEM_ALIGN));
+    float* output_data = static_cast<float*>(_mm_malloc(m * n * sizeof(float), MEM_ALIGN));
+    float* activation_repack_data = static_cast<float*>(_mm_malloc(m * k * sizeof(float), MEM_ALIGN));
+    float* weight_repack_data = static_cast<float*>(_mm_malloc(n * k * sizeof(float), MEM_ALIGN));
 
     // Initialize test data with random values
     for (int i = 0; i < m * k; i++) {
-        activation.data()[i] = static_cast<float>(rand()) / RAND_MAX;
+        activation_data[i] = static_cast<float>(rand()) / RAND_MAX;
     }
     for (int i = 0; i < n * k; i++) {
-        weight.data()[i] = static_cast<float>(rand()) / RAND_MAX;
+        weight_data[i] = static_cast<float>(rand()) / RAND_MAX;
     }
 
     // Create quantization parameter matrices
-    Matrix3D<float> scale(1, n, k / 32);  // QK = 32, so k / 32 blocks
-    Matrix3D<float> offset(1, n, k / 32);
-    Matrix3D<uint8_t> q4_w(1, n, k / 2);  // Each uint8_t contains two int4 weights
+    float* scale_data = static_cast<float*>(_mm_malloc(n * (k / 32) * sizeof(float), MEM_ALIGN));  // QK = 32, so k / 32 blocks
+    float* offset_data = static_cast<float*>(_mm_malloc(n * (k / 32) * sizeof(float), MEM_ALIGN));
+    uint8_t* q4_w_data = static_cast<uint8_t*>(_mm_malloc(n * (k / 2) * sizeof(uint8_t), MEM_ALIGN));  // Each uint8_t contains two int4 weights
 
     // Initialize quantization parameters
     for (int i = 0; i < n * (k / 32); i++) {
-        scale.data()[i] = 1.0f;  // Default scale
-        offset.data()[i] = 2.0f; // Default offset
+        scale_data[i] = 1.0f;  // Default scale
+        offset_data[i] = 2.0f; // Default offset
     }
     
     // Initialize quantized weights (simplified - in practice this would be quantized)
     for (int i = 0; i < n * (k / 2); i++) {
-        q4_w.data()[i] = static_cast<uint8_t>(rand() % 256);
+        q4_w_data[i] = static_cast<uint8_t>(rand() % 256);
     }
 
-    int8_t * A_repack = reinterpret_cast<int8_t *>(activation_repack.data());
-    quantize_row_q8_1_repack(activation.data(), A_repack, m * k);
-    repack_w81_weight_test(k, n, 32, weight_repack.data(), scale.data(), offset.data(), q4_w.data());
+    int8_t * A_repack = reinterpret_cast<int8_t *>(activation_repack_data);
+    quantize_row_q8_1_repack(activation_data, A_repack, m * k);
+    repack_w81_weight_test(k, n, 32, weight_repack_data, scale_data, offset_data, q4_w_data);
 
     // Measure throughput
     const int num_iterations = 100;
@@ -146,7 +153,7 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     // Warm up
     for (int i = 0; i < 10; ++i) {
         gemm_repack_A81W41(
-            A_repack, weight_repack.data(), output.data(),
+            A_repack, weight_repack_data, output_data,
             m, n, k
         );
     }
@@ -157,7 +164,7 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     {
         PROFILE_START_FLOPS(formatted_profile_name, ops);
          gemm_repack_A81W41(
-            A_repack, weight_repack.data(), output.data(),
+            A_repack, weight_repack_data, output_data,
             m, n, k
         );
         PROFILE_END(formatted_profile_name);
@@ -174,33 +181,25 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     printf("Throughput measurement for %s:\n", formatted_profile_name.c_str());
     printf("  Total time: %.6f seconds\n", total_time_seconds);
     printf("  Average time per iteration: %.6f seconds\n", avg_time_per_iteration);
-    printf("  Total operations: %f\n", total_ops);
+    printf("  Total operations: %lld\n", total_ops);
     printf("  Throughput: %.2f GFLOPS\n", throughput_gflops);
     printf("  Matrix dimensions: %d x %d x %d\n", m, n, k);
+    
+    // Free allocated memory
+    _mm_free(activation_data);
+    _mm_free(weight_data);
+    _mm_free(output_data);
+    _mm_free(activation_repack_data);
+    _mm_free(weight_repack_data);
+    _mm_free(scale_data);
+    _mm_free(offset_data);
+    _mm_free(q4_w_data);
 }
 
 int main() {
-    // NOTE: we must call ggml_init before invoking GGML_FP16_TO_FP32
-    const int ctx_size = 0;
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ ctx_size,
-        /*.mem_buffer =*/ NULL,
-        /* no_alloc   =*/ 0
-    };
-
-    struct ggml_context * ctx;
-    ctx = ggml_init(params);
-    if (!ctx) {
-        fprintf(stderr, "%s: ggml_init() failed\n", __func__);
-        return 1;
-    }
-    float a = 1.30;
-    ggml_fp16_t a_fp16 = GGML_FP32_TO_FP16(a);
-    float a_ = GGML_FP16_TO_FP32(a_fp16);
-    printf("%f vs %f\n", a, a_);
-
-    test_linear_implementation_correctness();
-    test_linear_implementation_throughput(1024, 1024, 1024);
+    // test_linear_implementation_correctness();
+    test_linear_implementation_throughput();
+    // test_linear_implementation_throughput(1024, 1024, 1024);
     // test_linear_implementation_throughput(320, 12288, 4096);
     // test_linear_implementation_throughput(320, 1024, 4096);
     Profiler::getInstance().report_internal();
