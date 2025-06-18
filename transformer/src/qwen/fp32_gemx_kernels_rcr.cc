@@ -485,7 +485,7 @@ void kernel_per_thread(float* A, float* B, float* C, const int M, const int N, c
     }
 }
 
-void gemv_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K)
+void gemv_fp32_rcr_mt_impl_2(float* A, float* B, float* C, const int M, const int N, const int K)
 {
     int actual_threads = 0;
     #pragma omp parallel num_threads(4)

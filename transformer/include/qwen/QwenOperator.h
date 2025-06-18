@@ -316,20 +316,19 @@ class Qwen_Linear_with_bias_Int4
         // Matrix3D<int8_t> zero_point = Matrix3D<int8_t>(weight_dim_x, weight_dim_y, weight_dim_z / QK);
 
         // Create views into the buffer
-        MatrixView<uint8_t> weight(reinterpret_cast<uint8_t*>(weights_buffer), weight_dim_x, weight_dim_y, weight_dim_z / 2);
-        float * scale_buffer = reinterpret_cast<float*>(weights_buffer + weight_dim_x * weight_dim_y * weight_dim_z / 2);
+        MatrixView<uint8_t> q4_w(reinterpret_cast<uint8_t*>(weights_buffer), weight_dim_x, weight_dim_y, weight_dim_z / 2);
+        float * scale_buffer = reinterpret_cast<float*>(weights_buffer + q4_w.length());
         MatrixView<float> scale(scale_buffer, weight_dim_x, weight_dim_y, weight_dim_z / QK);
-        float * offset_buffer = scale_buffer + weight_dim_x * weight_dim_y * weight_dim_z / QK;
-        MatrixView<float> offset(offset_buffer, 1, 1, 1);
-        int8_t * zp_buffer = reinterpret_cast<int8_t *>(offset_buffer + sizeof(float));
+        float * offset_buffer = scale_buffer + scale.length();
+        MatrixView<float> offset(offset_buffer,weight_dim_x, weight_dim_y, weight_dim_z / QK);
+        int8_t * zp_buffer = reinterpret_cast<int8_t *>(offset_buffer + offset.length());
         MatrixView<int8_t> zero_point(zp_buffer, weight_dim_x, weight_dim_y, weight_dim_z / QK);
 
         // Load data directly from disk into buffer
-        weight.load((path + "weight_int4.bin").c_str());
+        q4_w.load((path + "weight_int4.bin").c_str());
         scale.load((path + "scaling_factor_int4.bin").c_str());
+        offset.load((path + "offset_int4.bin").c_str());
         zero_point.load((path + "zero_point_int4.bin").c_str());
-        // Initialize offset to 0
-        *reinterpret_cast<float*>(offset_buffer) = 0.0f;
 
         int num_repack_blocks = weight_dim_y * weight_dim_z / (QK * 2 * 8);
         weight_rows = weight_dim_z;
@@ -338,11 +337,14 @@ class Qwen_Linear_with_bias_Int4
 
         // repack
         IF_DEBUG(printf("Repacking weight ... \n");)
-        repack_weight(weight_dim_z, weight_dim_y, QK, weight_repack.get(), scale.data(), weight.data());
+        // repack_w80_weight(weight_dim_z, weight_dim_y, QK, weight_repack.get(), scale.data(), weight.data());
+        repack_w81_weight(weight_dim_z, weight_dim_y, QK, weight_repack.get(), scale.data(), offset.data(),q4_w.data());
+        IF_DEBUG(printf("weight repacked... \n");)
         
     };
     
-    void repack_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const uint8_t * B);
+    void repack_w80_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const uint8_t * B);
+    void repack_w81_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const float * MinB, const uint8_t * B);
     
     Qwen_Linear_with_bias_Int4(const Qwen_Linear_with_bias_Int4 &other) {
         IF_DEBUG(printf("Copy Constructor Qwen_Linear_with_bias_Int4 ...");)
@@ -451,6 +453,7 @@ Matrix3D<float> add(const Matrix3D<float> a, const Matrix3D<float> b) ;
 
 
 void quantize_row_q8_0_repack(const float * x, void * vy, int64_t k);
+void quantize_row_q8_1_repack(const float * x, void * vy, int64_t k);
 void gemm_repack_A80W40(
     void * A_repack,
     void * B_repack,
@@ -464,8 +467,21 @@ void gemv_repack_A80W40(
     const int M, const int N, const int K
 );
 
+void gemm_repack_A81W41(
+    void * A_repack,
+    void * B_repack,
+    float* C,
+    const int M, const int N, const int K
+);
+void gemv_repack_A81W41(
+    void * A_repack,
+    void * B_repack,
+    float* C,
+    const int M, const int N, const int K
+);
 void gemm_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K);
-void gemv_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K);
+void gemv_fp32_rcr_mt_impl_1(float* A, float* B, float* C, const int M, const int N, const int K); 
+void gemv_fp32_rcr_mt_impl_2(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemm_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemv_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemv_fp32_rrr_naive(float* A, float* B, float* C, const int M, const int N, const int K);

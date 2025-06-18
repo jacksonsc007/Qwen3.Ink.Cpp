@@ -18,7 +18,8 @@
 enum LinearKernelType{
     Afp32Wfp32 = 0,
     A80W40 = 1,
-    KernelCount = 2
+    A81W41 = 2,
+    KernelCount = 3
 };
 
 
@@ -36,14 +37,18 @@ struct model_meta MODEL_REPOSITORY[KernelCount] = {
     [A80W40] = {
         .model_name = "qwen3-8b-A80W40",
         .model_path = "model_weights/int4/qwen3_8b_A80W40",
+    },
+    [A81W41] = {
+        .model_name = "qwen3-8b-A81W41",
+        .model_path = "model_weights/int4/qwen3-8b-A81W41",
     },    
 };
 
 
 int main(int argc, char** argv)
 {
-    std::string target_model = "qwen3-8b-A80W40";
-    LinearKernelType kernel_type = A80W40;
+    std::string target_model = "qwen3-8b-A81W41";
+    LinearKernelType kernel_type = A81W41;
 
     
     printf("\e[31m[INFO]\e[m Loading Model ...\n");
@@ -54,7 +59,7 @@ int main(int argc, char** argv)
         1,
         128
     };
-    if (kernel_type == A80W40)
+    if (kernel_type == A81W41)
     {
         int bs = 1;
         int max_sqlen = 4096;

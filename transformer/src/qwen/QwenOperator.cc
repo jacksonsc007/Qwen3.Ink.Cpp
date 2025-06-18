@@ -55,7 +55,6 @@ Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
 
 
 Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation) {
-    const int num_thread = 16;
     const int bs = activation.m_dim_x;
     const int m = activation.m_dim_y, n = weight_cols, k = activation.m_dim_z, b_size = activation.m_dim_x;
     const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
@@ -68,15 +67,17 @@ Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(Matrix3D<float> &activation)
 
 
     int8_t * A_repack = context_->activation_buffer.get();
-    quantize_row_q8_0_repack(activation.data(), A_repack, m * k);
+    PROFILE_START("[" + profile_name + " ::" + "Activation Online Quantization]");
+    quantize_row_q8_1_repack(activation.data(), A_repack, m * k);
+    PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
 
     if (m > 1)
-        gemm_repack_A80W40(
+         gemm_repack_A81W41(
             A_repack, weight_repack.get(), output.data(),
             m, n, k
         );
     else
-        gemv_repack_A80W40(
+        gemv_repack_A81W41(
             A_repack, weight_repack.get(), output.data(),
             m, n, k
         );
@@ -157,8 +158,8 @@ void bgemmGQA::forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, M
     } else {
         PhaseName = "AG Stage";
     }
-    oss << "[ " << PhaseName << "-qk-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
-    // oss << "[ " << PhaseName << "-qk-" << profile_name << "]";
+    // oss << "[ " << PhaseName << "-qk-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    oss << "[ " << PhaseName << "-qk-" << profile_name << "]";
     std::string formatted_profile_name = oss.str();
     PROFILE_START_FLOPS(formatted_profile_name, ops);
 
@@ -179,7 +180,7 @@ void bgemmGQA::forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, M
     else {
         for (int head_idx = 0; head_idx < n_heads; head_idx ++)
         {
-            gemv_fp32_rcr(
+            gemv_fp32_rcr_mt_impl_2(
                 A.data() + head_idx * m * k,  // A: bs x m x k
                 &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
                 output.data() + head_idx * m * n,  // C: bs x m x n
@@ -204,9 +205,7 @@ void bgemmGQA::forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, M
     PROFILE_END(formatted_profile_name);
 }
 
-void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output)
-{
-
+void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
     const int m = A.m_dim_y, n = output.m_dim_z, k = A.m_dim_z, bs = A.m_dim_x;
     const long long ops = (long long)bs * 2 * (long long)m * (long long)n * (long long)k;
     std::ostringstream oss;
@@ -218,8 +217,8 @@ void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, M
     else {
         PhaseName = "AG Stage";
     }
-    oss << "[ " << PhaseName << "-pv-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
-    // oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
+    // oss << "[ " << PhaseName << "-pv-" << profile_name << ": (" << bs << ", " << m << ", " << k << ") x (" << bs << ", " << n << ", " << k << ") ]";
+    oss << "[ " << PhaseName << "-pv-" << profile_name << "]";
     std::string formatted_profile_name = oss.str();
     PROFILE_START_FLOPS(formatted_profile_name, ops);
 
@@ -679,7 +678,10 @@ bool has_nan(Matrix3D<float> mat)
 #define C(i, j, ld) ( C + ( i ) * ( ld ) + ( j ) )
 #define SA(i, j, ld) (SA + (i) * (ld) + (j))
 #define SB(i, j, ld) (SB + (j) * (ld) + (i))
-void Qwen_Linear_with_bias_Int4::repack_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+#define MinB(i, j, ld) (MinB + (j) * (ld) + (i))
+#define ScaledSumA(i, j, ld) (ScaledSumA + (i) * (ld) + (j))
+
+void Qwen_Linear_with_bias_Int4::repack_w80_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
     const float * SB, const uint8_t * B)
     {
         
@@ -700,6 +702,53 @@ void Qwen_Linear_with_bias_Int4::repack_weight(const int K, const int N, const i
                 fp16_t s_high = GGML_FP32_TO_FP16( *SB ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ) ); 
                 B_ptr->s_low[jj] = s_low;
                 B_ptr->s_high[jj] = s_high;
+            }
+            // pack quantized int4 weights in an interleaved manner
+            // The block has size of 64 x 8 elements logically, but physically it is laid out as 32 x 8,
+            // since each element has 4 bits and the block has type int8, wiht each element only taking half of the byte.
+            // 32 x 8 is covered by stacking 8 packs, each measuring 4 x 8 elements.
+            // memory layout inside packs is in column-major order
+            uint8_t * B_ptr_start =  B_ptr->q_coupled;
+            int num_packs = 8;
+            for (int pack_idx = 0; pack_idx < num_packs; pack_idx++)
+            {
+                uint8_t * pack_start_ptr = B_ptr_start + pack_idx * 32;
+                for (int jj = 0; jj < 8; jj++)
+                {
+                    for (int ii = 0; ii < 4; ii++)
+                    {
+                        pack_start_ptr[ii + jj * 4] = *B(i * Q_BLK_SIZE + pack_idx * 4 + ii, j * 8 + jj, K / 2);
+                    }
+                }
+            }
+        }
+    } 
+    }
+
+void Qwen_Linear_with_bias_Int4::repack_w81_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+    const float * SB, const float * MinB, const uint8_t * B)
+    {
+
+    int num_repack_blk_B_along_K = K / (2 * Q_BLK_SIZE);
+    int num_repack_blk_B_along_N = N / 8;
+    struct q4_repack_2x8 * B_start =  (struct q4_repack_2x8 *) B_repack;
+    for (int j = 0; j < num_repack_blk_B_along_N; j++) 
+    {
+        for (int i = 0; i < num_repack_blk_B_along_K; i++)
+        {
+            struct q4_repack_2x8 * B_ptr =  B_start + j * num_repack_blk_B_along_K + i;
+
+            // pack scaling factors
+            for (int jj = 0; jj < 8; jj++)
+            {
+                fp16_t s_low    = GGML_FP32_TO_FP16( *SB   ( i * 2    , j * 8 + jj, K / Q_BLK_SIZE ) ); 
+                fp16_t s_high   = GGML_FP32_TO_FP16( *SB   ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ) ); 
+                fp16_t min_low  = GGML_FP32_TO_FP16( *MinB ( i * 2    , j * 8 + jj, K / Q_BLK_SIZE ) ); 
+                fp16_t min_high = GGML_FP32_TO_FP16( *MinB ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ) ); 
+                B_ptr->s_low[jj] = s_low;
+                B_ptr->s_high[jj] = s_high;
+                B_ptr->min_low[jj] = min_low;
+                B_ptr->min_high[jj] = min_high;
             }
             // pack quantized int4 weights in an interleaved manner
             // The block has size of 64 x 8 elements logically, but physically it is laid out as 32 x 8,

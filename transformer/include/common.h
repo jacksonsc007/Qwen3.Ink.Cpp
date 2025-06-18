@@ -413,6 +413,25 @@ class Matrix3D {
         gt.load(path.c_str());
         this->statistics();
         gt.statistics();
+        float abs_err_total = 0;
+        for (int i = 0; i < m_dim_x; ++i)
+        {
+            for (int j = 0; j < m_dim_y; ++j)
+            {
+                for (int k = 0; k < m_dim_z; ++k)
+                {
+                    float v1 = (float) (*this)(i, j, k);
+                    float v2 = gt(i, j, k);
+                    if ( i == 0 && j == 0 && k < 5)
+                        printf("(%d, %d, %d) value = %f ; gt = %f\n", i, j, k, v1, v2);
+                    float abs_err = v1 > v2 ? v1 - v2: v2 - v1;
+                    abs_err_total += abs_err;
+                    // if (abs_err > 1) return false;
+                }
+            }
+        }
+        float avg_eror = abs_err_total / ((float)m_dim_x * m_dim_y * m_dim_z);
+        printf("average abs error = %f\n", avg_eror);
         // return (*this == gt);
         return true;
     }

@@ -107,5 +107,5 @@ Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_co
     The linear weights are serialized from PyTorch, which has shape (out_dim, in_dim)
     */
     IF_DEBUG(printf("\e[31m[INFO]\e[m Initialize lm_head\n");)
-    this->lm_head = Qwen_Linear_with_bias_Int4(&context_, param_path + "/lm_head/", 1, vocab_size, h_dim);;
+    this->lm_head =  Qwen_Linear_with_bias_Int4(&context_, param_path + "/lm_head/", 1, vocab_size, h_dim);;
 }
