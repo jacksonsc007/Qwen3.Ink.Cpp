@@ -758,10 +758,6 @@ void Qwen_Linear_with_bias_Int4::repack_w81_weight(const int K, const int N, con
                 fp16_t s_high   = GGML_FP32_TO_FP16(s_high_fp32); 
                 fp16_t min_low  = GGML_FP32_TO_FP16(min_low_fp32);
                 fp16_t min_high = GGML_FP32_TO_FP16(min_high_fp32);
-                B_ptr->s_low_fp32[jj] = s_low_fp32;
-                B_ptr->s_high_fp32[jj] = s_high_fp32;
-                B_ptr->min_low_fp32[jj] = min_low_fp32;
-                B_ptr->min_high_fp32[jj] = min_high_fp32;
                 B_ptr->s_low[jj] = s_low;
                 B_ptr->s_high[jj] = s_high;
                 B_ptr->min_low[jj] = min_low;

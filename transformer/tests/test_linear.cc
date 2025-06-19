@@ -106,14 +106,14 @@ void test_linear_implementation_correctness() {
 void test_linear_implementation_throughput(int m, int n, int k) {
     Matrix3D<float> activation(1, m, k);
     Matrix3D<float> weight(1, n, k);
-    Matrix3D<float> output(1, m, n);
+    // Matrix3D<float> output(1, m, n);
     // Matrix3D<float> activation_repack(1, m, k);
     // Matrix3D<float> weight_repack(1, n, k);
     const int MEM_ALIGN = 64;
     float* activation_repack_data = static_cast<float*>(_mm_malloc(m * k * sizeof(float), MEM_ALIGN));
-
-
     float* weight_repack_data = static_cast<float*>(_mm_malloc(n * k * sizeof(float), MEM_ALIGN));
+    float* output_data = static_cast<float*>(_mm_malloc(m * n * sizeof(float), MEM_ALIGN));
+
     // Initialize test data with random values
     for (int i = 0; i < m * k; i++) {
         activation.data()[i] = static_cast<float>(rand()) / RAND_MAX;
@@ -152,7 +152,7 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     // Warm up
     for (int i = 0; i < 10; ++i) {
         gemm_repack_A81W41(
-            A_repack, weight_repack_data, output.data(),
+            A_repack, weight_repack_data, output_data,
             m, n, k
         );
     }
@@ -164,7 +164,7 @@ void test_linear_implementation_throughput(int m, int n, int k) {
         // printf("\e[31m[hi]\e[m \n");
         PROFILE_START_FLOPS(formatted_profile_name, ops);
          gemm_repack_A81W41(
-            A_repack, weight_repack_data, output.data(),
+            A_repack, weight_repack_data, output_data,
             m, n, k
         );
         PROFILE_END(formatted_profile_name);

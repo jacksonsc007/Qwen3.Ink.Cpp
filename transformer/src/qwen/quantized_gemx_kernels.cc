@@ -17,6 +17,7 @@
 
 #define OMP_SCHEDULE dynamic
 #define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")
+#define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")
 
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -350,7 +351,6 @@ void gemm_repack_A81W41(
     const int M, const int N, const int K
 )
 {
-
     struct q4_repack_2x8 * B_ptr_start = (struct q4_repack_2x8 *) B_repack;
     struct q8_repack_1x2 * A_ptr_start = (struct q8_repack_1x2 *) A_repack;
     // how many q4_repack and q8_repack blocks along the N dimension
@@ -360,17 +360,17 @@ void gemm_repack_A81W41(
     // how many q8_repack blocks along the M dimension
     int nb_m = M; // M is a multiple of 6 for this implementation
     PRAGMA_OMP_PARALLEL_FOR
-    for(int j = 0; j < nb_n; j++)
+        for(int j = 0; j < nb_n; j++)
     {
-        for (int i = 0; i < nb_m; i += 6)
+    for (int i = 0; i < nb_m; i += 6)
         {
-        int valid_rows = min(6, nb_m - i);
-        struct q8_repack_1x2 * A_ptr = A_ptr_start + i * nb_k;
-        struct q8_repack_1x2 * A_ptr_next = A_ptr_start + (i + 1) * nb_k;
-        struct q8_repack_1x2 * A_ptr_next2 = A_ptr_start + (i + 2) * nb_k;
-        struct q8_repack_1x2 * A_ptr_next3 = A_ptr_start + (i + 3) * nb_k;
-        struct q8_repack_1x2 * A_ptr_next4 = A_ptr_start + (i + 4) * nb_k;
-        struct q8_repack_1x2 * A_ptr_next5 = A_ptr_start + (i + 5) * nb_k;
+            int valid_rows = min(6, nb_m - i);
+            struct q8_repack_1x2 * A_ptr = A_ptr_start + i * nb_k;
+            struct q8_repack_1x2 * A_ptr_next = A_ptr_start + (i + 1) * nb_k;
+            struct q8_repack_1x2 * A_ptr_next2 = A_ptr_start + (i + 2) * nb_k;
+            struct q8_repack_1x2 * A_ptr_next3 = A_ptr_start + (i + 3) * nb_k;
+            struct q8_repack_1x2 * A_ptr_next4 = A_ptr_start + (i + 4) * nb_k;
+            struct q8_repack_1x2 * A_ptr_next5 = A_ptr_start + (i + 5) * nb_k;
             struct q4_repack_2x8 * B_ptr = B_ptr_start + j * nb_k;
             
             __m256 acc_row0 = _mm256_setzero_ps();
@@ -455,40 +455,40 @@ void gemm_repack_A81W41(
                 }
                 
                 // load scaleing factors
-                __m256 sB_low = _mm256_loadu_ps(B_block.s_low_fp32);
-                __m256 sB_high = _mm256_loadu_ps(B_block.s_high_fp32);
-                __m256 minB_low = _mm256_loadu_ps(B_block.min_low_fp32);
-                __m256 minB_high = _mm256_loadu_ps(B_block.min_high_fp32);
+                __m256 sB_low = GGML_F32Cx8_LOAD(B_block.s_low);
+                __m256 sB_high = GGML_F32Cx8_LOAD(B_block.s_high);
+                __m256 minB_low = GGML_F32Cx8_LOAD(B_block.min_low);
+                __m256 minB_high = GGML_F32Cx8_LOAD(B_block.min_high);
 
-                __m256 sA_low = _mm256_set1_ps(A_ptr[blk_id].s_low_fp32);
-                __m256 sA_high = _mm256_set1_ps(A_ptr[blk_id].s_high_fp32);
-                __m256 scaled_sum_low = _mm256_set1_ps(A_ptr[blk_id].scaled_sum_low_fp32);
-                __m256 scaled_sum_high = _mm256_set1_ps(A_ptr[blk_id].scaled_sum_high_fp32);
+                __m256 sA_low = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].s_low));
+                __m256 sA_high = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].s_high));
+                __m256 scaled_sum_low = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next = _mm256_set1_ps(A_ptr_next[blk_id].s_low_fp32);
-                __m256 sA_high_next = _mm256_set1_ps(A_ptr_next[blk_id].s_high_fp32);
-                __m256 scaled_sum_low_next = _mm256_set1_ps(A_ptr_next[blk_id].scaled_sum_low_fp32);
-                __m256 scaled_sum_high_next = _mm256_set1_ps(A_ptr_next[blk_id].scaled_sum_high_fp32);
+                __m256 sA_low_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].s_low));
+                __m256 sA_high_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].s_high));
+                __m256 scaled_sum_low_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].s_low_fp32);
-                __m256 sA_high_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].s_high_fp32);
-                __m256 scaled_sum_low_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].scaled_sum_low_fp32);
-                __m256 scaled_sum_high_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].scaled_sum_high_fp32);
+                __m256 sA_low_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].s_low));
+                __m256 sA_high_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].s_high));
+                __m256 scaled_sum_low_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].s_low_fp32);
-                __m256 sA_high_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].s_high_fp32);
-                __m256 scaled_sum_low_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].scaled_sum_low_fp32);
-                __m256 scaled_sum_high_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].scaled_sum_high_fp32);
+                __m256 sA_low_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].s_low));
+                __m256 sA_high_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].s_high));
+                __m256 scaled_sum_low_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].s_low_fp32);
-                __m256 sA_high_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].s_high_fp32);
-                __m256 scaled_sum_low_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].scaled_sum_low_fp32);
-                __m256 scaled_sum_high_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].scaled_sum_high_fp32);
+                __m256 sA_low_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].s_low));
+                __m256 sA_high_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].s_high));
+                __m256 scaled_sum_low_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].scaled_sum_high));
 
-                __m256 sA_low_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].s_low_fp32);
-                __m256 sA_high_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].s_high_fp32);
-                __m256 scaled_sum_low_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].scaled_sum_low_fp32);
-                __m256 scaled_sum_high_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].scaled_sum_high_fp32);
+                __m256 sA_low_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].s_low));
+                __m256 sA_high_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].s_high));
+                __m256 scaled_sum_low_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].scaled_sum_low));
+                __m256 scaled_sum_high_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].scaled_sum_high));
 
                 __m256 s_low = _mm256_mul_ps(sA_low, sB_low);
                 __m256 s_high = _mm256_mul_ps(sA_high, sB_high);
@@ -730,14 +730,12 @@ void quantize_row_q8_1_repack(const float * x, void * vy, int64_t k) {
 
         // Quantize first block
         const float d1 = max_scalar1 / 127.f;
-        y[i].s_low_fp32 = (d1);
         y[i].s_low = GGML_FP32_TO_FP16(d1);
         const float id1 = (max_scalar1 != 0.0f) ? 127.f / max_scalar1 : 0.0f;
         const __m256 mul1 = _mm256_set1_ps(id1);
 
         // Quantize second block
         const float d2 = max_scalar2 / 127.f;
-        y[i].s_high_fp32 = (d2);
         y[i].s_high = GGML_FP32_TO_FP16(d2);
         const float id2 = (max_scalar2 != 0.0f) ? 127.f / max_scalar2 : 0.0f;
         const __m256 mul2 = _mm256_set1_ps(id2);
@@ -774,10 +772,8 @@ void quantize_row_q8_1_repack(const float * x, void * vy, int64_t k) {
 
         // Compute scaled sums for both blocks
         float scaled_sum_low = ( d1 * hsum_i32_8(_mm256_add_epi32(_mm256_add_epi32(i0, i1), _mm256_add_epi32(i2, i3))) );
-        y[i].scaled_sum_low_fp32 = scaled_sum_low;
         y[i].scaled_sum_low = GGML_FP32_TO_FP16(scaled_sum_low);
         float scaled_sum_high = ( d2 * hsum_i32_8(_mm256_add_epi32(_mm256_add_epi32(i4, i5), _mm256_add_epi32(i6, i7))) );
-        y[i].scaled_sum_high_fp32 = scaled_sum_high;
         y[i].scaled_sum_high = GGML_FP32_TO_FP16(scaled_sum_high);
 
         // Convert int32 to int16 for first block
