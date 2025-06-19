@@ -74,15 +74,22 @@ Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &activ
     PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
 
     if (m > 1)
-         gemm_repack_A81W41(
+    {
+
+        PROFILE_START_FLOPS("[" + formatted_profile_name + " ::" + "real computaion]", ops);
+        gemm_repack_A81W41(
             A_repack, weight_repack.get(), output.data(),
             m, n, k
         );
+        PROFILE_END("[" + formatted_profile_name + " ::" + "real computaion]");
+    }
     else
+    {
         gemv_repack_A81W41(
             A_repack, weight_repack.get(), output.data(),
             m, n, k
         );
+    }
 
     PROFILE_END(formatted_profile_name);
     return output;

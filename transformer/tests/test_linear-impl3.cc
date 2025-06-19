@@ -1,5 +1,6 @@
 #include <cmath>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 
@@ -10,6 +11,7 @@
 #include "utils.h"
 #include "utils_memalloc.h"
 #include "QwenOperator.h"
+#include <immintrin.h>
 // #include <sstream>
 
 // Standalone repack function for testing
@@ -71,7 +73,7 @@ void test_linear_implementation_correctness() {
     size_t weight_buffer_size = (
         num_q_blocks * size_per_q_block
     );
-    ctx.repack_buffer = std::make_unique<int8_t []>(weight_buffer_size); // 2 int4 weights in one byte
+    ctx.repack_buffer = make_aligned_x86<int8_t>(64, weight_buffer_size);
 
     size_t max_activation_cols = 12288; // 12288 is the maximum hidden dimension
     size_t max_activation_rows = 4096;
@@ -84,7 +86,7 @@ void test_linear_implementation_correctness() {
     size_t activation_buffer_size = (
         num_q_blocks * size_per_q_block
     );
-    ctx.activation_buffer = std::make_unique<int8_t []>(activation_buffer_size); // 2 int4 weights in one byte
+    ctx.activation_buffer = make_aligned_x86<int8_t>(64, activation_buffer_size);
 
     
     //
@@ -105,9 +107,13 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     Matrix3D<float> activation(1, m, k);
     Matrix3D<float> weight(1, n, k);
     Matrix3D<float> output(1, m, n);
-    Matrix3D<float> activation_repack(1, m, k);
-    Matrix3D<float> weight_repack(1, n, k);
+    // Matrix3D<float> activation_repack(1, m, k);
+    // Matrix3D<float> weight_repack(1, n, k);
+    const int MEM_ALIGN = 64;
+    float* activation_repack_data = static_cast<float*>(_mm_malloc(m * k * sizeof(float), MEM_ALIGN));
 
+
+    float* weight_repack_data = static_cast<float*>(_mm_malloc(n * k * sizeof(float), MEM_ALIGN));
     // Initialize test data with random values
     for (int i = 0; i < m * k; i++) {
         activation.data()[i] = static_cast<float>(rand()) / RAND_MAX;
@@ -132,9 +138,9 @@ void test_linear_implementation_throughput(int m, int n, int k) {
         q4_w.data()[i] = static_cast<uint8_t>(rand() % 256);
     }
 
-    int8_t * A_repack = reinterpret_cast<int8_t *>(activation_repack.data());
+    int8_t * A_repack = reinterpret_cast<int8_t *>(activation_repack_data);
     quantize_row_q8_1_repack(activation.data(), A_repack, m * k);
-    repack_w81_weight_test(k, n, 32, weight_repack.data(), scale.data(), offset.data(), q4_w.data());
+    repack_w81_weight_test(k, n, 32, weight_repack_data, scale.data(), offset.data(), q4_w.data());
 
     // Measure throughput
     const int num_iterations = 100;
@@ -146,7 +152,7 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     // Warm up
     for (int i = 0; i < 10; ++i) {
         gemm_repack_A81W41(
-            A_repack, weight_repack.data(), output.data(),
+            A_repack, weight_repack_data, output.data(),
             m, n, k
         );
     }
@@ -155,9 +161,10 @@ void test_linear_implementation_throughput(int m, int n, int k) {
     auto start_time = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_iterations; ++i)
     {
+        // printf("\e[31m[hi]\e[m \n");
         PROFILE_START_FLOPS(formatted_profile_name, ops);
          gemm_repack_A81W41(
-            A_repack, weight_repack.data(), output.data(),
+            A_repack, weight_repack_data, output.data(),
             m, n, k
         );
         PROFILE_END(formatted_profile_name);

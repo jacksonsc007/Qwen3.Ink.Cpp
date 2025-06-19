@@ -1,4 +1,5 @@
 #include "QwenForCausalLM.h"
+#include <sys/types.h>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -78,6 +79,7 @@ Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_co
     size_t max_weight_cols = 151936;
     size_t num_q_blocks = max_weight_rows * max_weight_cols / QK;
     size_t size_per_q_block = (
+        sizeof(uint16_t) * 4 + // scaling factors, min, zero, scaled sum
         sizeof(float) * 4 + // scaling factors, min, zero, scaled sum
         (sizeof(uint8_t) / 2) * QK + // quantized weights
         (sizeof(uint8_t) / 2) * QK // prepare for mixture of A80W40 and A81W41
@@ -85,20 +87,21 @@ Qwen3ForCausalLM::Qwen3ForCausalLM(std::string param_path, const struct qwen3_co
     size_t weight_buffer_size = (
         num_q_blocks * size_per_q_block
     );
-    context_.repack_buffer = std::make_unique<int8_t []>(weight_buffer_size); // 2 int4 weights in one byte
+    context_.repack_buffer = make_aligned_x86<int8_t>(64, weight_buffer_size);
 
     size_t max_activation_cols = 12288; // 12288 is the maximum hidden dimension
     size_t max_activation_rows = max_sqlen;
     num_q_blocks = max_activation_rows * max_activation_cols / QK;
     size_per_q_block = (
         sizeof(float) * 4 + // scaling factors, min, zero, scaled sum
+        sizeof(uint16_t) * 4 + // scaling factors, min, zero, scaled sum
         (sizeof(uint8_t)) * QK 
     );
 
     size_t activation_buffer_size = (
         num_q_blocks * size_per_q_block
     );
-    context_.activation_buffer = std::make_unique<int8_t []>(activation_buffer_size); // 2 int4 weights in one byte
+    context_.activation_buffer = make_aligned_x86<int8_t>(64, activation_buffer_size);
 
     this->model = Qwen3Model(&context_, param_path + "/model", config);
 

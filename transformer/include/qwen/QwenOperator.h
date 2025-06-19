@@ -15,12 +15,33 @@ bool has_nan(Matrix3D<float> &mat);
 
 
 
+// Define alignment boundary (e.g., 64-byte for cache-line optimization)
+#define ALIGNMENT 64
+
+// Helper to create aligned unique_ptr
+template <typename T>
+std::unique_ptr<T, void(*)(T*)> make_aligned_x86(size_t align, size_t count) {
+    // Ensure alignment is a power of two
+    if (align & (align - 1)) {
+        throw std::invalid_argument("Alignment must be a power of two");
+    }
+    auto deleter = [](T* ptr) { _mm_free(ptr); };
+    T* ptr = static_cast<T*>(_mm_malloc(count * sizeof(T), align));
+    if (!ptr && count > 0) {
+        throw std::bad_alloc();
+    }
+    return {ptr, deleter};
+}
 
 struct ModelContext{
     std::unique_ptr<float[]> k_cache;
     std::unique_ptr<float[]> v_cache;
-    std::unique_ptr<int8_t []> repack_buffer; // buffer to load weights before repacking
-    std::unique_ptr<int8_t []> activation_buffer; // buffer to load online-quantized activations in linear layers 
+    std::unique_ptr<int8_t, void(*)(int8_t *)> repack_buffer; // buffer to load weights before repacking
+    std::unique_ptr<int8_t, void(*)(int8_t *)> activation_buffer; // buffer to load online-quantized activations in linear layers 
+    
+    // Null deleter for empty states
+    static void null_deleter(int8_t*) {}
+    ModelContext():repack_buffer(nullptr, null_deleter), activation_buffer(nullptr, null_deleter){}
 };
 
 
