@@ -57,7 +57,7 @@ public:
     std::string params_path;
     int num_q_head, num_kv_head;
     int q_dim, kv_dim;
-    Qwen_Linear_with_bias_Int4 k_proj, v_proj, q_proj, o_proj;
+    Qwen_Linear_with_bias_Int4 qkv_proj, o_proj;
     Qwen3RMSNorm q_norm, k_norm;
     RotaryPosEmb rope_embed;
     bgemmGQA qk_bmm, pv_bmm;

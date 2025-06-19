@@ -43,8 +43,8 @@ ${PROJECT_SOURCE_DIR}/include/qwen
 )
 
 list(APPEND MAIN_SRCS 
-${PROJECT_SOURCE_DIR}/tests/test_QwenChat.cc 
-# ${PROJECT_SOURCE_DIR}/tests/test_linear.cc 
+# ${PROJECT_SOURCE_DIR}/tests/test_QwenChat.cc 
+${PROJECT_SOURCE_DIR}/tests/test_linear.cc 
 )
 
 # ===

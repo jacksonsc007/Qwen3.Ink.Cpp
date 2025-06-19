@@ -422,6 +422,7 @@ class Qwen_Linear_with_bias_Int4
     };
 
     Matrix3D<float> forward( const Matrix3D<float> &activation);
+    Matrix3D<float> forward_gemm ( const Matrix3D<float> &activation);
     // method to evaluate the correctness optimization method
     void forward_reference(const Matrix3D<float> &x, Matrix3D<float> &output);
     // void initialize_memory(const int block_size);
@@ -503,4 +504,5 @@ void gemv_fp32_rcr_mt_impl_2(float* A, float* B, float* C, const int M, const in
 void gemm_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemv_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemv_fp32_rrr_naive(float* A, float* B, float* C, const int M, const int N, const int K);
+
 #endif

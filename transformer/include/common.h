@@ -462,6 +462,22 @@ class Matrix3D {
         }
     }
 
+    // Extract a sub-tensor along the last dimension: [start_z, end_z)
+    Matrix3D<T> slice(int start_z, int end_z) const {
+        PROFILE_START("matrix3D slice");
+        assert(start_z >= 0 && end_z <= m_dim_z && start_z < end_z);
+        Matrix3D<T> result(m_dim_x, m_dim_y, end_z - start_z);
+        for (int x = 0; x < m_dim_x; ++x) {
+            for (int y = 0; y < m_dim_y; ++y) {
+                for (int z = start_z; z < end_z; ++z) {
+                    result(x, y, z - start_z) = (*this)(x, y, z);
+                }
+            }
+        }
+        PROFILE_END("matrix3D slice");
+        return result;
+    }
+
    private:
     void check_indices(int x, int y, int z) const {
         if (x < 0 || x >= m_dim_x || y < 0 || y >= m_dim_y || z < 0 || z >= m_dim_z) {

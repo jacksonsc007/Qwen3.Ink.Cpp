@@ -52,6 +52,39 @@ Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
 }
 
 
+Matrix3D<float> Qwen_Linear_with_bias_Int4::forward_gemm(const Matrix3D<float> &activation) {
+    const int bs = activation.m_dim_x;
+    const int m = activation.m_dim_y, n = weight_cols, k = activation.m_dim_z, b_size = activation.m_dim_x;
+    const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
+    PROFILE_START("[" + profile_name + " ::" + "create output]");
+    Matrix3D<float> output (bs, m, n);
+    PROFILE_END("[" + profile_name + " ::" + "create output]");
+    std::ostringstream oss;
+    oss << "[" << profile_name << ": " << m << " x " << n << " x " << k << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+
+
+    int8_t * A_repack = context_->activation_buffer.get();
+    PROFILE_START("[" + profile_name + " ::" + "Activation Online Quantization]");
+    quantize_row_q8_1_repack(activation.data(), A_repack, m * k);
+    PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
+
+    PROFILE_START_FLOPS(formatted_profile_name + " ::" + "real computaion", ops);
+    gemm_repack_A81W41(
+        A_repack, weight_repack.get(), output.data(),
+        m, n, k
+    );
+    PROFILE_END(formatted_profile_name + " ::" + "real computaion");
+    gemv_repack_A81W41(
+        A_repack, weight_repack.get(), output.data(),
+        m, n, k
+    );
+
+    PROFILE_END(formatted_profile_name);
+    return output;
+}
 
 
 Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &activation) {
@@ -76,12 +109,12 @@ Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &activ
     if (m > 1)
     {
 
-        PROFILE_START_FLOPS("[" + formatted_profile_name + " ::" + "real computaion]", ops);
+        PROFILE_START_FLOPS(formatted_profile_name + " ::" + "real computaion", ops);
         gemm_repack_A81W41(
             A_repack, weight_repack.get(), output.data(),
             m, n, k
         );
-        PROFILE_END("[" + formatted_profile_name + " ::" + "real computaion]");
+        PROFILE_END(formatted_profile_name + " ::" + "real computaion");
     }
     else
     {

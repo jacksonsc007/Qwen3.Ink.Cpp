@@ -46,41 +46,20 @@ class Profiler {
 
         for (const auto& entry : durations) {
             std::cout << std::left << std::setw(80) << entry.first 
-                      << std::setw(30) << std::fixed << std::setprecision(2) << (float)(entry.second) / 1000 
-                      << std::setw(30) << std::fixed << std::setprecision(2) << (float)(entry.second / counts.at(entry.first)) / 1000 
+                      << std::setw(30) << std::fixed << std::setprecision(3) << (float)(entry.second) / 1000 
+                      << std::setw(30) << std::fixed << std::setprecision(3) << (float)(entry.second / counts.at(entry.first)) / 1000 
                       << std::setw(30) << counts.at(entry.first);
 
             if (flops.count(entry.first) == 0)
                 std::cout << std::setw(30) << "N/A";
             else
-                std::cout << std::setw(30) << std::fixed << std::setprecision(2) << ((((float)flops.at(entry.first)) / (float)(entry.second)) / 1000.0);
-            // TODO: imprrove. Resue the flops as the number elements to fetch to calcuate memory bandwidth
-            // float total_bytes = (float)flops.at(entry.first) * (float) sizeof(float);
-            // float total_gbs = total_bytes / 1024.0 / 1024.0 / 1024.0;
-            // std::cout << std::setw(30) << std::fixed << std::setprecision(2) << (( (  total_gbs ) / (float)(entry.second / 1e6) ));
+                std::cout << std::setw(30) << std::fixed << std::setprecision(3) << ((((float)flops.at(entry.first)) / (float)(entry.second)) / 1000.0);
             
             
 
             std::cout << std::endl;
         }
     }
-    // void report_internal() const {
-    //     std::cout << "Section, Total time(ms), Average time(ms), Count, GOPs" << std::endl;
-    //     for (const auto& entry : durations) {
-    //         std::string row;
-    //         row += entry.first + ", ";
-    //         row += std::to_string((float)(entry.second) / 1000) + ", ";
-    //         row += std::to_string((float)(entry.second / counts.at(entry.first)) / 1000) + ", ";
-    //         if (flops.count(entry.first) == 0)
-    //             row += std::to_string(counts.at(entry.first)) + ", N/A";
-    //         else {
-    //             row += std::to_string(counts.at(entry.first)) + ", ";
-    //             // ops and microsecond
-    //             row += std::to_string((((float)flops.at(entry.first)) / (float)(entry.second)) / 1000.0);
-    //         }
-    //         std::cout << row << std::endl;
-    //     }
-    // }
 
     void report() const {
 #ifdef PROFILER

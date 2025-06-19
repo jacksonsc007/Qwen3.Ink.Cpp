@@ -26,13 +26,11 @@ Qwen3Attention::Qwen3Attention(ModelContext *ctx, float * k_cache_space_, float 
     , num_q_head(config.num_q_head)
     , num_kv_head(config.num_kv_head)
     , head_dim(config.head_dim)
-    , q_proj(ctx, param_path + "/q_proj/", 1, q_dim, hidden_dim)
-    , k_proj(ctx, param_path + "/k_proj/", 1, kv_dim, hidden_dim)
-    , v_proj(ctx, param_path + "/v_proj/", 1, kv_dim, hidden_dim)
-    , o_proj(ctx, param_path + "/o_proj/", 1, hidden_dim, hidden_dim)
     , q_norm(head_dim)
     , k_norm(head_dim)
     , rope_embed(max_sqlen, head_dim, param_path + "/../../../rotary_emb")
+    , qkv_proj(ctx, param_path + "/qkv_proj/", 1, q_dim + 2 * kv_dim, hidden_dim)
+    , o_proj(ctx, param_path + "/o_proj/", 1, hidden_dim, hidden_dim)
 {
     assert (head_dim == kv_dim / num_kv_head);
 
@@ -77,24 +75,23 @@ struct Qwen3Attention_Output Qwen3Attention::forward(struct Qwen3Attention_Input
     // ---------------------------------------------------------------
     // Stage 1: Generation of Q,K,V
     // ---------------------------------------------------------------
-    // TODO: Fused Generation of QKV
+    // Fused Generation of QKV
     PROFILE_START(forward_profile_name + "::QKV Generation");
     assert (bs == 1);
-    Matrix3D<float> query_states_unshape = q_proj.forward(*input.hidden_state);
+    Matrix3D<float> qkv = qkv_proj.forward(*input.hidden_state);
+    // TODO: Implement or use a slice method for Matrix3D to split qkv into q, k, v
+    // Example assumes qkv is (bs*sqlen, q_dim + 2*kv_dim)
+    Matrix3D<float> query_states_unshape = qkv.slice(0, q_dim); // (bs*sqlen, num_q_head, head_dim)
+    Matrix3D<float> key_states_unshape   = qkv.slice(q_dim, q_dim + kv_dim); // (bs*sqlen, num_kv_head, head_dim)
+    Matrix3D<float> value_states_unshape = qkv.slice(q_dim + kv_dim, q_dim + 2*kv_dim); // (bs*sqlen, num_kv_head, head_dim)
     query_states_unshape.view(bs * sqlen, num_q_head, head_dim);
     Matrix3D<float> query_states_norm = q_norm.forward(query_states_unshape);
-    // (bs * sqlen, n_head, head_dim) -> (num_head, bs*sqlen, head_dim)
     Matrix3D<float> query_states = query_states_norm.permute01();
-    
-    Matrix3D<float> key_states_unshape = k_proj.forward(*input.hidden_state);
     key_states_unshape.view(bs * sqlen, num_kv_head, head_dim);
     Matrix3D<float> key_states_norm = k_norm.forward(key_states_unshape);
     Matrix3D<float> key_states = key_states_norm.permute01();
-    
-    Matrix3D<float> value_states_unshape = v_proj.forward(*input.hidden_state);
     value_states_unshape.view(bs * sqlen, num_kv_head, head_dim);
     Matrix3D<float> value_states = value_states_unshape.permute01();
-    
     this->rope_embed.apply(query_states, key_states, past_sqlen, sqlen);
     PROFILE_END(forward_profile_name + "::QKV Generation");
     

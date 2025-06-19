@@ -99,7 +99,7 @@ void test_linear_implementation_correctness() {
     output_linear.compare_with_gt(output_gt_path);
 }
 
-void test_linear_implementation_throughput(int m, int n, int k) {
+void test_matmul_kernel_throughput(int m, int n, int k) {
     Matrix3D<float> activation(1, m, k);
     Matrix3D<float> weight(1, n, k);
     Matrix3D<float> output(1, m, n);
@@ -180,7 +180,7 @@ void test_linear_implementation_throughput(int m, int n, int k) {
 int main() {
     // test_linear_implementation_correctness();
     // test_linear_implementation_throughput(1024, 1024, 1024);
-    test_linear_implementation_throughput(320, 12288, 4096);
+    test_matmul_kernel_throughput(320, 12288, 4096);
     // test_linear_implementation_throughput(320, 1024, 4096);
     Profiler::getInstance().report_internal();
 }
