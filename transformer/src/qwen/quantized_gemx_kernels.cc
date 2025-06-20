@@ -43,8 +43,8 @@ void gemv_repack_A80W40(
 )
 {
 
-    struct q4_repack_2x8 * B_ptr_start = (struct q4_repack_2x8 *) B_repack;
-    struct q8_repack_1x2 * A_ptr_start = (struct q8_repack_1x2 *) A_repack;
+    struct q4_repack_2x8_fp16 * B_ptr_start = (struct q4_repack_2x8_fp16 *) B_repack;
+    struct q8_repack_1x2_fp16 * A_ptr_start = (struct q8_repack_1x2_fp16 *) A_repack;
     // how many q4_repack and q8_repack blocks along the N dimension
     int nb_k = K / (2 * Q_BLK_SIZE);
     // how many q4_repack blocks along the K dimension
@@ -55,12 +55,12 @@ void gemv_repack_A80W40(
         PRAGMA_OMP_PARALLEL_FOR
         for(int j = 0; j < nb_n; j++)
         {
-            struct q4_repack_2x8 * B_ptr = B_ptr_start + j * nb_k;
-            struct q8_repack_1x2 * A_ptr = A_ptr_start + 0 * nb_k;
+            struct q4_repack_2x8_fp16 * B_ptr = B_ptr_start + j * nb_k;
+            struct q8_repack_1x2_fp16 * A_ptr = A_ptr_start + 0 * nb_k;
             __m256 acc_row = _mm256_setzero_ps();
             for (int blk_id = 0; blk_id < nb_k; blk_id++)
             {
-                struct q4_repack_2x8 B_block =  B_ptr[blk_id];
+                struct q4_repack_2x8_fp16 B_block =  B_ptr[blk_id];
                 // each pack contains 4 elements in the quantization block
                 __m256i low_blk_B_packs[8];
                 __m256i high_blk_B_packs[8];
@@ -107,33 +107,33 @@ void gemv_repack_A80W40(
 }
 
 
-void gemv_repack_A81W41(
+void gemv_repack_A81W41_fp16(
     void * A_repack,
     void * B_repack,
     float* C,
     const int M, const int N, const int K
 )
 {
-    struct q4_repack_2x8 * B_ptr_start = (struct q4_repack_2x8 *) B_repack;
-    struct q8_repack_1x2 * A_ptr_start = (struct q8_repack_1x2 *) A_repack;
+    struct q4_repack_2x8_fp16 * B_ptr_start = (struct q4_repack_2x8_fp16 *) B_repack;
+    struct q8_repack_1x2_fp16 * A_ptr_start = (struct q8_repack_1x2_fp16 *) A_repack;
     // how many q4_repack and q8_repack blocks along the K dimension
     int nb_k = K / (2 * Q_BLK_SIZE);
     // how many q4_repack blocks along the N dimension
     int nb_n = N / 8; 
     
     // Process single row of A
-    struct q8_repack_1x2 * A_ptr = A_ptr_start;
+    struct q8_repack_1x2_fp16 * A_ptr = A_ptr_start;
 
     PRAGMA_OMP_PARALLEL_FOR
     for(int j = 0; j < nb_n; j++)
     {
-        struct q4_repack_2x8 * B_ptr = B_ptr_start + j * nb_k;
+        struct q4_repack_2x8_fp16 * B_ptr = B_ptr_start + j * nb_k;
         
         __m256 acc_row = _mm256_setzero_ps();
         
         for (int blk_id = 0; blk_id < nb_k; blk_id++)
         {
-            struct q4_repack_2x8 B_block = B_ptr[blk_id];
+            struct q4_repack_2x8_fp16 B_block = B_ptr[blk_id];
             // each pack contains 4 elements in the quantization block
             __m256i low_blk_B_packs[8];
             __m256i high_blk_B_packs[8];
@@ -198,8 +198,8 @@ void gemm_repack_A80W40(
 )
 {
     // printf("\e[31m[num_threads = %d]\e[m \n", NTHREADS);
-    struct q4_repack_2x8 * B_ptr_start = (struct q4_repack_2x8 *) B_repack;
-    struct q8_repack_1x2 * A_ptr_start = (struct q8_repack_1x2 *) A_repack;
+    struct q4_repack_2x8_fp16 * B_ptr_start = (struct q4_repack_2x8_fp16 *) B_repack;
+    struct q8_repack_1x2_fp16 * A_ptr_start = (struct q8_repack_1x2_fp16 *) A_repack;
     // how many q4_repack and q8_repack blocks along the N dimension
     int nb_k = K / (2 * Q_BLK_SIZE);
     // how many q4_repack blocks along the K dimension
@@ -213,10 +213,10 @@ void gemm_repack_A80W40(
         for(int j = 0; j < nb_n; j += 2)
         {
             // Handle 2x2 block of output
-            struct q4_repack_2x8 * B_ptr_0 = B_ptr_start + j * nb_k;
-            struct q4_repack_2x8 * B_ptr_1 = B_ptr_start + (j + 1) * nb_k;
-            struct q8_repack_1x2 * A_ptr_0 = A_ptr_start + i * nb_k;
-            struct q8_repack_1x2 * A_ptr_1 = A_ptr_start + (i + 1) * nb_k;
+            struct q4_repack_2x8_fp16 * B_ptr_0 = B_ptr_start + j * nb_k;
+            struct q4_repack_2x8_fp16 * B_ptr_1 = B_ptr_start + (j + 1) * nb_k;
+            struct q8_repack_1x2_fp16 * A_ptr_0 = A_ptr_start + i * nb_k;
+            struct q8_repack_1x2_fp16 * A_ptr_1 = A_ptr_start + (i + 1) * nb_k;
 
             // Initialize 4 accumulators for 2x2 block
             __m256 acc_row_00 = _mm256_setzero_ps();
@@ -227,8 +227,8 @@ void gemm_repack_A80W40(
             for (int blk_id = 0; blk_id < nb_k; blk_id++)
             {
                 // Load B blocks
-                struct q4_repack_2x8 B_block_0 = B_ptr_0[blk_id];
-                struct q4_repack_2x8 B_block_1 = B_ptr_1[blk_id];
+                struct q4_repack_2x8_fp16 B_block_0 = B_ptr_0[blk_id];
+                struct q4_repack_2x8_fp16 B_block_1 = B_ptr_1[blk_id];
 
                 // Process B blocks - low and high parts
                 __m256i low_blk_B_packs_0[8];
@@ -344,15 +344,15 @@ void gemm_repack_A80W40(
     }
 }
 
-void gemm_repack_A81W41(
+void gemm_repack_A81W41_fp32(
     void * A_repack,
     void * B_repack,
     float* C,
     const int M, const int N, const int K
 )
 {
-    struct q4_repack_2x8 * B_ptr_start = (struct q4_repack_2x8 *) B_repack;
-    struct q8_repack_1x2 * A_ptr_start = (struct q8_repack_1x2 *) A_repack;
+    struct q4_repack_2x8_fp32 * B_ptr_start = (struct q4_repack_2x8_fp32 *) B_repack;
+    struct q8_repack_1x2_fp32 * A_ptr_start = (struct q8_repack_1x2_fp32 *) A_repack;
     // how many q4_repack and q8_repack blocks along the N dimension
     int nb_k = K / (2 * Q_BLK_SIZE);
     // how many q4_repack blocks along the K dimension
@@ -365,13 +365,13 @@ void gemm_repack_A81W41(
     for (int i = 0; i < nb_m; i += 6)
         {
             int valid_rows = min(6, nb_m - i);
-            struct q8_repack_1x2 * A_ptr = A_ptr_start + i * nb_k;
-            struct q8_repack_1x2 * A_ptr_next = A_ptr_start + (i + 1) * nb_k;
-            struct q8_repack_1x2 * A_ptr_next2 = A_ptr_start + (i + 2) * nb_k;
-            struct q8_repack_1x2 * A_ptr_next3 = A_ptr_start + (i + 3) * nb_k;
-            struct q8_repack_1x2 * A_ptr_next4 = A_ptr_start + (i + 4) * nb_k;
-            struct q8_repack_1x2 * A_ptr_next5 = A_ptr_start + (i + 5) * nb_k;
-            struct q4_repack_2x8 * B_ptr = B_ptr_start + j * nb_k;
+            struct q8_repack_1x2_fp32 * A_ptr = A_ptr_start + i * nb_k;
+            struct q8_repack_1x2_fp32 * A_ptr_next = A_ptr_start + (i + 1) * nb_k;
+            struct q8_repack_1x2_fp32 * A_ptr_next2 = A_ptr_start + (i + 2) * nb_k;
+            struct q8_repack_1x2_fp32 * A_ptr_next3 = A_ptr_start + (i + 3) * nb_k;
+            struct q8_repack_1x2_fp32 * A_ptr_next4 = A_ptr_start + (i + 4) * nb_k;
+            struct q8_repack_1x2_fp32 * A_ptr_next5 = A_ptr_start + (i + 5) * nb_k;
+            struct q4_repack_2x8_fp32 * B_ptr = B_ptr_start + j * nb_k;
             
             __m256 acc_row0 = _mm256_setzero_ps();
             __m256 acc_row1 = _mm256_setzero_ps();
@@ -382,7 +382,7 @@ void gemm_repack_A81W41(
             
             for (int blk_id = 0; blk_id < nb_k; blk_id++)
             {
-                struct q4_repack_2x8 B_block =  B_ptr[blk_id];
+                struct q4_repack_2x8_fp32 B_block =  B_ptr[blk_id];
                 // each pack contains 4 elements in the quantization block
                 __m256i low_blk_B_packs[8];
                 __m256i high_blk_B_packs[8];
@@ -455,40 +455,40 @@ void gemm_repack_A81W41(
                 }
                 
                 // load scaleing factors
-                __m256 sB_low = GGML_F32Cx8_LOAD(B_block.s_low);
-                __m256 sB_high = GGML_F32Cx8_LOAD(B_block.s_high);
-                __m256 minB_low = GGML_F32Cx8_LOAD(B_block.min_low);
-                __m256 minB_high = GGML_F32Cx8_LOAD(B_block.min_high);
+                __m256 sB_low = _mm256_loadu_ps(B_block.s_low);
+                __m256 sB_high = _mm256_loadu_ps(B_block.s_high);
+                __m256 minB_low = _mm256_loadu_ps(B_block.min_low);
+                __m256 minB_high = _mm256_loadu_ps(B_block.min_high);
 
-                __m256 sA_low = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].s_low));
-                __m256 sA_high = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].s_high));
-                __m256 scaled_sum_low = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].scaled_sum_low));
-                __m256 scaled_sum_high = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr[blk_id].scaled_sum_high));
+                __m256 sA_low = _mm256_set1_ps(A_ptr[blk_id].s_low);
+                __m256 sA_high = _mm256_set1_ps(A_ptr[blk_id].s_high);
+                __m256 scaled_sum_low = _mm256_set1_ps(A_ptr[blk_id].scaled_sum_low);
+                __m256 scaled_sum_high = _mm256_set1_ps(A_ptr[blk_id].scaled_sum_high);
 
-                __m256 sA_low_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].s_low));
-                __m256 sA_high_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].s_high));
-                __m256 scaled_sum_low_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].scaled_sum_low));
-                __m256 scaled_sum_high_next = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next[blk_id].scaled_sum_high));
+                __m256 sA_low_next = _mm256_set1_ps(A_ptr_next[blk_id].s_low);
+                __m256 sA_high_next = _mm256_set1_ps(A_ptr_next[blk_id].s_high);
+                __m256 scaled_sum_low_next = _mm256_set1_ps(A_ptr_next[blk_id].scaled_sum_low);
+                __m256 scaled_sum_high_next = _mm256_set1_ps(A_ptr_next[blk_id].scaled_sum_high);
 
-                __m256 sA_low_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].s_low));
-                __m256 sA_high_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].s_high));
-                __m256 scaled_sum_low_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].scaled_sum_low));
-                __m256 scaled_sum_high_next2 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next2[blk_id].scaled_sum_high));
+                __m256 sA_low_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].s_low);
+                __m256 sA_high_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].s_high);
+                __m256 scaled_sum_low_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].scaled_sum_low);
+                __m256 scaled_sum_high_next2 = _mm256_set1_ps(A_ptr_next2[blk_id].scaled_sum_high);
 
-                __m256 sA_low_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].s_low));
-                __m256 sA_high_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].s_high));
-                __m256 scaled_sum_low_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].scaled_sum_low));
-                __m256 scaled_sum_high_next3 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next3[blk_id].scaled_sum_high));
+                __m256 sA_low_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].s_low);
+                __m256 sA_high_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].s_high);
+                __m256 scaled_sum_low_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].scaled_sum_low);
+                __m256 scaled_sum_high_next3 = _mm256_set1_ps(A_ptr_next3[blk_id].scaled_sum_high);
 
-                __m256 sA_low_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].s_low));
-                __m256 sA_high_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].s_high));
-                __m256 scaled_sum_low_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].scaled_sum_low));
-                __m256 scaled_sum_high_next4 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next4[blk_id].scaled_sum_high));
+                __m256 sA_low_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].s_low);
+                __m256 sA_high_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].s_high);
+                __m256 scaled_sum_low_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].scaled_sum_low);
+                __m256 scaled_sum_high_next4 = _mm256_set1_ps(A_ptr_next4[blk_id].scaled_sum_high);
 
-                __m256 sA_low_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].s_low));
-                __m256 sA_high_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].s_high));
-                __m256 scaled_sum_low_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].scaled_sum_low));
-                __m256 scaled_sum_high_next5 = _mm256_set1_ps(GGML_FP16_TO_FP32(A_ptr_next5[blk_id].scaled_sum_high));
+                __m256 sA_low_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].s_low);
+                __m256 sA_high_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].s_high);
+                __m256 scaled_sum_low_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].scaled_sum_low);
+                __m256 scaled_sum_high_next5 = _mm256_set1_ps(A_ptr_next5[blk_id].scaled_sum_high);
 
                 __m256 s_low = _mm256_mul_ps(sA_low, sB_low);
                 __m256 s_high = _mm256_mul_ps(sA_high, sB_high);
@@ -576,6 +576,7 @@ void gemm_repack_A81W41(
         }
     }
 
+
 }
 
 void quantize_row_q8_0_repack(const float * x, void * vy, int64_t k) {
@@ -583,7 +584,7 @@ void quantize_row_q8_0_repack(const float * x, void * vy, int64_t k) {
     assert(k % QK8_0 == 0);
     const int nb = k / QK8_0;
 
-    struct q8_repack_1x2 * y = (struct q8_repack_1x2 *) vy;
+    struct q8_repack_1x2_fp16 * y = (struct q8_repack_1x2_fp16 *) vy;
     for (int i = 0; i < nb/2; i++) {
         // Load elements into 8 AVX vectors (4 for each block)
         __m256 v0_low = _mm256_loadu_ps(x);
@@ -687,11 +688,11 @@ void quantize_row_q8_0_repack(const float * x, void * vy, int64_t k) {
     }
 }
 
-void quantize_row_q8_1_repack(const float * x, void * vy, int64_t k) {
+void quantize_row_q8_1_repack_fp16(const float * x, void * vy, int64_t k) {
     assert(k % (2 * QK8_1) == 0);  // Must be multiple of 64 (2 blocks of 32)
     const int nb = k / (2 * QK8_1);  // Number of q80_repack_1x2 blocks
 
-    struct q8_repack_1x2 * GGML_RESTRICT y = (struct q8_repack_1x2 *) vy;
+    struct q8_repack_1x2_fp16 * GGML_RESTRICT y = (struct q8_repack_1x2_fp16 *) vy;
     for (int i = 0; i < nb; i++) {
         // Load elements into 8 AVX vectors (64 elements total)
         __m256 v0 = _mm256_loadu_ps(x);
@@ -775,6 +776,116 @@ void quantize_row_q8_1_repack(const float * x, void * vy, int64_t k) {
         y[i].scaled_sum_low = GGML_FP32_TO_FP16(scaled_sum_low);
         float scaled_sum_high = ( d2 * hsum_i32_8(_mm256_add_epi32(_mm256_add_epi32(i4, i5), _mm256_add_epi32(i6, i7))) );
         y[i].scaled_sum_high = GGML_FP32_TO_FP16(scaled_sum_high);
+
+        // Convert int32 to int16 for first block
+        i0 = _mm256_packs_epi32(i0, i1);
+        i2 = _mm256_packs_epi32(i2, i3);
+        i0 = _mm256_packs_epi16(i0, i2);
+
+        // Convert int32 to int16 for second block
+        i4 = _mm256_packs_epi32(i4, i5);
+        i6 = _mm256_packs_epi32(i6, i7);
+        i4 = _mm256_packs_epi16(i4, i6);
+
+        // Fix order for first block
+        const __m256i perm = _mm256_setr_epi32(0, 4, 1, 5, 2, 6, 3, 7);
+        i0 = _mm256_permutevar8x32_epi32(i0, perm);
+        i4 = _mm256_permutevar8x32_epi32(i4, perm);
+
+        // Store results
+        _mm256_storeu_si256((__m256i *)y[i].q_low, i0);
+        _mm256_storeu_si256((__m256i *)y[i].q_high, i4);
+    }
+}
+
+void quantize_row_q8_1_repack_fp32(const float * x, void * vy, int64_t k) {
+    assert(k % (2 * QK8_1) == 0);  // Must be multiple of 64 (2 blocks of 32)
+    const int nb = k / (2 * QK8_1);  // Number of q80_repack_1x2 blocks
+
+    struct q8_repack_1x2_fp32 * GGML_RESTRICT y = (struct q8_repack_1x2_fp32 *) vy;
+    for (int i = 0; i < nb; i++) {
+        // Load elements into 8 AVX vectors (64 elements total)
+        __m256 v0 = _mm256_loadu_ps(x);
+        __m256 v1 = _mm256_loadu_ps(x + 8);
+        __m256 v2 = _mm256_loadu_ps(x + 16);
+        __m256 v3 = _mm256_loadu_ps(x + 24);
+        __m256 v4 = _mm256_loadu_ps(x + 32);
+        __m256 v5 = _mm256_loadu_ps(x + 40);
+        __m256 v6 = _mm256_loadu_ps(x + 48);
+        __m256 v7 = _mm256_loadu_ps(x + 56);
+        x += 64;
+
+        // Compute max(abs(e)) for first block (first 32 elements)
+        const __m256 signBit = _mm256_set1_ps(-0.0f);
+        __m256 maxAbs1 = _mm256_andnot_ps(signBit, v0);
+        maxAbs1 = _mm256_max_ps(maxAbs1, _mm256_andnot_ps(signBit, v1));
+        maxAbs1 = _mm256_max_ps(maxAbs1, _mm256_andnot_ps(signBit, v2));
+        maxAbs1 = _mm256_max_ps(maxAbs1, _mm256_andnot_ps(signBit, v3));
+
+        // Compute max(abs(e)) for second block (next 32 elements)
+        __m256 maxAbs2 = _mm256_andnot_ps(signBit, v4);
+        maxAbs2 = _mm256_max_ps(maxAbs2, _mm256_andnot_ps(signBit, v5));
+        maxAbs2 = _mm256_max_ps(maxAbs2, _mm256_andnot_ps(signBit, v6));
+        maxAbs2 = _mm256_max_ps(maxAbs2, _mm256_andnot_ps(signBit, v7));
+
+        // Get max values for both blocks
+        __m128 max4_1 = _mm_max_ps(_mm256_extractf128_ps(maxAbs1, 1), _mm256_castps256_ps128(maxAbs1));
+        max4_1 = _mm_max_ps(max4_1, _mm_movehl_ps(max4_1, max4_1));
+        max4_1 = _mm_max_ss(max4_1, _mm_movehdup_ps(max4_1));
+        const float max_scalar1 = _mm_cvtss_f32(max4_1);
+
+        __m128 max4_2 = _mm_max_ps(_mm256_extractf128_ps(maxAbs2, 1), _mm256_castps256_ps128(maxAbs2));
+        max4_2 = _mm_max_ps(max4_2, _mm_movehl_ps(max4_2, max4_2));
+        max4_2 = _mm_max_ss(max4_2, _mm_movehdup_ps(max4_2));
+        const float max_scalar2 = _mm_cvtss_f32(max4_2);
+
+        // Quantize first block
+        const float d1 = max_scalar1 / 127.f;
+        y[i].s_low = d1;
+        const float id1 = (max_scalar1 != 0.0f) ? 127.f / max_scalar1 : 0.0f;
+        const __m256 mul1 = _mm256_set1_ps(id1);
+
+        // Quantize second block
+        const float d2 = max_scalar2 / 127.f;
+        y[i].s_high = d2;
+        const float id2 = (max_scalar2 != 0.0f) ? 127.f / max_scalar2 : 0.0f;
+        const __m256 mul2 = _mm256_set1_ps(id2);
+
+        // Apply multipliers
+        v0 = _mm256_mul_ps(v0, mul1);
+        v1 = _mm256_mul_ps(v1, mul1);
+        v2 = _mm256_mul_ps(v2, mul1);
+        v3 = _mm256_mul_ps(v3, mul1);
+        v4 = _mm256_mul_ps(v4, mul2);
+        v5 = _mm256_mul_ps(v5, mul2);
+        v6 = _mm256_mul_ps(v6, mul2);
+        v7 = _mm256_mul_ps(v7, mul2);
+
+        // Round to nearest integer
+        v0 = _mm256_round_ps(v0, _MM_ROUND_NEAREST);
+        v1 = _mm256_round_ps(v1, _MM_ROUND_NEAREST);
+        v2 = _mm256_round_ps(v2, _MM_ROUND_NEAREST);
+        v3 = _mm256_round_ps(v3, _MM_ROUND_NEAREST);
+        v4 = _mm256_round_ps(v4, _MM_ROUND_NEAREST);
+        v5 = _mm256_round_ps(v5, _MM_ROUND_NEAREST);
+        v6 = _mm256_round_ps(v6, _MM_ROUND_NEAREST);
+        v7 = _mm256_round_ps(v7, _MM_ROUND_NEAREST);
+
+        // Convert floats to integers
+        __m256i i0 = _mm256_cvtps_epi32(v0);
+        __m256i i1 = _mm256_cvtps_epi32(v1);
+        __m256i i2 = _mm256_cvtps_epi32(v2);
+        __m256i i3 = _mm256_cvtps_epi32(v3);
+        __m256i i4 = _mm256_cvtps_epi32(v4);
+        __m256i i5 = _mm256_cvtps_epi32(v5);
+        __m256i i6 = _mm256_cvtps_epi32(v6);
+        __m256i i7 = _mm256_cvtps_epi32(v7);
+
+        // Compute scaled sums for both blocks
+        float scaled_sum_low = ( d1 * hsum_i32_8(_mm256_add_epi32(_mm256_add_epi32(i0, i1), _mm256_add_epi32(i2, i3))) );
+        y[i].scaled_sum_low = scaled_sum_low;
+        float scaled_sum_high = ( d2 * hsum_i32_8(_mm256_add_epi32(_mm256_add_epi32(i4, i5), _mm256_add_epi32(i6, i7))) );
+        y[i].scaled_sum_high = scaled_sum_high;
 
         // Convert int32 to int16 for first block
         i0 = _mm256_packs_epi32(i0, i1);

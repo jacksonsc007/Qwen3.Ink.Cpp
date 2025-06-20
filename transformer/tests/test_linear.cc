@@ -22,11 +22,11 @@ void repack_w81_weight_test(const int K, const int N, const int Q_BLK_SIZE, void
     // In a real implementation, this would do the actual repacking
     int num_repack_blk_B_along_K = K / (2 * Q_BLK_SIZE);
     int num_repack_blk_B_along_N = N / 8;
-    struct q4_repack_2x8 * B_start = (struct q4_repack_2x8 *) B_repack;
+    struct q4_repack_2x8_fp16 * B_start = (struct q4_repack_2x8_fp16 *) B_repack;
     
     for (int j = 0; j < num_repack_blk_B_along_N; j++) {
         for (int i = 0; i < num_repack_blk_B_along_K; i++) {
-            struct q4_repack_2x8 * B_ptr = B_start + j * num_repack_blk_B_along_K + i;
+            struct q4_repack_2x8_fp16 * B_ptr = B_start + j * num_repack_blk_B_along_K + i;
             
             // Pack scaling factors
             for (int jj = 0; jj < 8; jj++) {
@@ -100,7 +100,7 @@ void test_linear_implementation_correctness() {
     input.load(input_path.c_str());
     // output_gt.load(output_gt_path.c_str());
     
-    Matrix3D<float> output_linear = q_proj.forward(input);
+    Matrix3D<float> output_linear = q_proj.forward_gemv(input);
     output_linear.compare_with_gt(output_gt_path);
 }
 
@@ -140,7 +140,7 @@ void test_matmul_kernel_throughput(int m, int n, int k) {
     }
 
     int8_t * A_repack = reinterpret_cast<int8_t *>(activation_repack_data);
-    quantize_row_q8_1_repack(activation.data(), A_repack, m * k);
+    quantize_row_q8_1_repack_fp16(activation.data(), A_repack, m * k);
     repack_w81_weight_test(k, n, 32, weight_repack_data, scale.data(), offset.data(), q4_w.data());
 
     // Measure throughput
@@ -152,7 +152,7 @@ void test_matmul_kernel_throughput(int m, int n, int k) {
     
     // Warm up
     for (int i = 0; i < 10; ++i) {
-        gemm_repack_A81W41(
+        gemm_repack_A81W41_fp32(
             A_repack, weight_repack_data, output_data,
             m, n, k
         );
@@ -164,7 +164,7 @@ void test_matmul_kernel_throughput(int m, int n, int k) {
     {
         // printf("\e[31m[hi]\e[m \n");
         PROFILE_START_FLOPS(formatted_profile_name, ops);
-         gemm_repack_A81W41(
+         gemm_repack_A81W41_fp32(
             A_repack, weight_repack_data, output_data,
             m, n, k
         );
@@ -242,7 +242,7 @@ void test_mlp_linear_layer_throughput() {
     const int num_iters = 20;
     for (int i = 0; i < num_iters; ++i)
     {
-        Matrix3D<float> output_linear = q_proj.forward(input);
+        Matrix3D<float> output_linear = q_proj.forward_gemv(input);
     }
 
 }

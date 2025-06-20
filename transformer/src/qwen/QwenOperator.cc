@@ -52,41 +52,6 @@ Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
 }
 
 
-Matrix3D<float> Qwen_Linear_with_bias_Int4::forward_gemm(const Matrix3D<float> &activation) {
-    const int bs = activation.m_dim_x;
-    const int m = activation.m_dim_y, n = weight_cols, k = activation.m_dim_z, b_size = activation.m_dim_x;
-    const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
-    PROFILE_START("[" + profile_name + " ::" + "create output]");
-    Matrix3D<float> output (bs, m, n);
-    PROFILE_END("[" + profile_name + " ::" + "create output]");
-    std::ostringstream oss;
-    oss << "[" << profile_name << ": " << m << " x " << n << " x " << k << "]";
-    std::string formatted_profile_name = oss.str();
-    PROFILE_START_FLOPS(formatted_profile_name, ops);
-
-
-
-    int8_t * A_repack = context_->activation_buffer.get();
-    PROFILE_START("[" + profile_name + " ::" + "Activation Online Quantization]");
-    quantize_row_q8_1_repack(activation.data(), A_repack, m * k);
-    PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
-
-    PROFILE_START_FLOPS(formatted_profile_name + " ::" + "real computaion", ops);
-    gemm_repack_A81W41(
-        A_repack, weight_repack.get(), output.data(),
-        m, n, k
-    );
-    PROFILE_END(formatted_profile_name + " ::" + "real computaion");
-    gemv_repack_A81W41(
-        A_repack, weight_repack.get(), output.data(),
-        m, n, k
-    );
-
-    PROFILE_END(formatted_profile_name);
-    return output;
-}
-
-
 Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &activation) {
     const int bs = activation.m_dim_x;
     const int m = activation.m_dim_y, n = weight_cols, k = activation.m_dim_z, b_size = activation.m_dim_x;
@@ -102,24 +67,27 @@ Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &activ
 
 
     int8_t * A_repack = context_->activation_buffer.get();
-    PROFILE_START("[" + profile_name + " ::" + "Activation Online Quantization]");
-    quantize_row_q8_1_repack(activation.data(), A_repack, m * k);
-    PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
 
     if (m > 1)
     {
 
+        PROFILE_START("[" + profile_name + " ::" + "Activation Online Quantization]");
+        quantize_row_q8_1_repack_fp32(activation.data(), A_repack, m * k);
+        PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
         PROFILE_START_FLOPS(formatted_profile_name + " ::" + "real computaion", ops);
-        gemm_repack_A81W41(
-            A_repack, weight_repack.get(), output.data(),
+        gemm_repack_A81W41_fp32(
+            A_repack, weight_repack_fp32.get(), output.data(),
             m, n, k
         );
         PROFILE_END(formatted_profile_name + " ::" + "real computaion");
     }
     else
     {
-        gemv_repack_A81W41(
-            A_repack, weight_repack.get(), output.data(),
+        PROFILE_START("[" + profile_name + " ::" + "Activation Online Quantization]");
+        quantize_row_q8_1_repack_fp16(activation.data(), A_repack, m * k);
+        PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
+        gemv_repack_A81W41_fp16(
+            A_repack, weight_repack_fp16.get(), output.data(),
             m, n, k
         );
     }
@@ -729,12 +697,12 @@ void Qwen_Linear_with_bias_Int4::repack_w80_weight(const int K, const int N, con
         
     int num_repack_blk_B_along_K = K / (2 * Q_BLK_SIZE);
     int num_repack_blk_B_along_N = N / 8;
-    struct q4_repack_2x8 * B_start =  (struct q4_repack_2x8 *) B_repack;
+    struct q4_repack_2x8_fp16 * B_start =  (struct q4_repack_2x8_fp16 *) B_repack;
     for (int j = 0; j < num_repack_blk_B_along_N; j++) 
     {
         for (int i = 0; i < num_repack_blk_B_along_K; i++)
         {
-            struct q4_repack_2x8 * B_ptr =  B_start + j * num_repack_blk_B_along_K + i;
+            struct q4_repack_2x8_fp16 * B_ptr =  B_start + j * num_repack_blk_B_along_K + i;
 
             // pack scaling factors
             for (int jj = 0; jj < 8; jj++)
@@ -767,18 +735,18 @@ void Qwen_Linear_with_bias_Int4::repack_w80_weight(const int K, const int N, con
     } 
     }
 
-void Qwen_Linear_with_bias_Int4::repack_w81_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+void Qwen_Linear_with_bias_Int4::repack_w81_weight_fp16(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
     const float * SB, const float * MinB, const uint8_t * B)
     {
 
     int num_repack_blk_B_along_K = K / (2 * Q_BLK_SIZE);
     int num_repack_blk_B_along_N = N / 8;
-    struct q4_repack_2x8 * B_start =  (struct q4_repack_2x8 *) B_repack;
+    struct q4_repack_2x8_fp16 * B_start =  (struct q4_repack_2x8_fp16 *) B_repack;
     for (int j = 0; j < num_repack_blk_B_along_N; j++) 
     {
         for (int i = 0; i < num_repack_blk_B_along_K; i++)
         {
-            struct q4_repack_2x8 * B_ptr =  B_start + j * num_repack_blk_B_along_K + i;
+            struct q4_repack_2x8_fp16 * B_ptr =  B_start + j * num_repack_blk_B_along_K + i;
 
             // pack scaling factors
             for (int jj = 0; jj < 8; jj++)
@@ -817,3 +785,45 @@ void Qwen_Linear_with_bias_Int4::repack_w81_weight(const int K, const int N, con
         }
     } 
     }
+
+void Qwen_Linear_with_bias_Int4::repack_w81_weight_fp32(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+    const float * SB, const float * MinB, const uint8_t * B)
+{
+    int num_repack_blk_B_along_K = K / (2 * Q_BLK_SIZE);
+    int num_repack_blk_B_along_N = N / 8;
+    struct q4_repack_2x8_fp32 * B_start =  (struct q4_repack_2x8_fp32 *) B_repack;
+    for (int j = 0; j < num_repack_blk_B_along_N; j++) 
+    {
+        for (int i = 0; i < num_repack_blk_B_along_K; i++)
+        {
+            struct q4_repack_2x8_fp32 * B_ptr =  B_start + j * num_repack_blk_B_along_K + i;
+
+            // pack scaling factors
+            for (int jj = 0; jj < 8; jj++)
+            {
+                float s_low_fp32 = *SB   ( i * 2    , j * 8 + jj, K / Q_BLK_SIZE ); 
+                float s_high_fp32 = *SB   ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ); 
+                float min_low_fp32 = *MinB ( i * 2    , j * 8 + jj, K / Q_BLK_SIZE ); 
+                float min_high_fp32 = *MinB ( i * 2 + 1, j * 8 + jj, K / Q_BLK_SIZE ); 
+                B_ptr->s_low[jj] = s_low_fp32;
+                B_ptr->s_high[jj] = s_high_fp32;
+                B_ptr->min_low[jj] = min_low_fp32;
+                B_ptr->min_high[jj] = min_high_fp32;
+            }
+            // pack quantized int4 weights in an interleaved manner
+            uint8_t * B_ptr_start =  B_ptr->q_coupled;
+            int num_packs = 8;
+            for (int pack_idx = 0; pack_idx < num_packs; pack_idx++)
+            {
+                uint8_t * pack_start_ptr = B_ptr_start + pack_idx * 32;
+                for (int jj = 0; jj < 8; jj++)
+                {
+                    for (int ii = 0; ii < 4; ii++)
+                    {
+                        pack_start_ptr[ii + jj * 4] = *B(i * Q_BLK_SIZE + pack_idx * 4 + ii, j * 8 + jj, K / 2);
+                    }
+                }
+            }
+        }
+    } 
+}
