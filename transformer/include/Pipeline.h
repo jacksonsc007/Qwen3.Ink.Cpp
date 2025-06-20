@@ -97,7 +97,7 @@ public:
     Pipeline(void* model_ptr, const std::string& tiktoken_path, bool interactive, const qwen3_config& config);
     ~Pipeline();
 
-    std::vector<int> generate(const std::string& text, const qwen_params& generation_config);
+    std::vector<int> generate(const std::vector<std::string>& history, const qwen_params& generation_config);
     std::string decode(const std::vector<int>& tokens);
     std::vector<int> encode(const std::string& text, int max_length);
 
@@ -116,4 +116,11 @@ public:
     static void sample_tail_free(token_data_array* candidates, float z, size_t min_keep);
     static void sample_typical(token_data_array* candidates, float p, size_t min_keep);
     static void sample_top_p(token_data_array* candidates, float p, size_t min_keep);
+
+private:
+    // Helper for the main generation loop, takes already-encoded input_ids
+    std::vector<int> _generate_from_ids(std::vector<int> input_ids, const qwen_params& generation_config);
+
+    // Encapsulate the sampling process
+    int sample_next_token(std::vector<float>& logits, std::vector<int>& last_n_tokens, const qwen_params& generation_config);
 }; 

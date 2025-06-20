@@ -31,17 +31,15 @@ Qwen3Model::Qwen3Model(ModelContext* ctx, std::string param_path, const struct q
     , wte(hidden_dim, voc_size)
     , output_norm(hidden_dim)
 {
-    IF_DEBUG(
-        printf("\e[31m[INFO]\e[m Loading weights for word token embeddings ...\n");
-    )
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading weights for word token embeddings ...\n");)
     wte.load(param_path + "/embed_tokens");
 
     // final output norm
-    printf("\e[31m[INFO]\e[m Loading weights for output norm ...\n");
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading weights for output norm ...\n");)
     output_norm.load((param_path + "/norm/weight.bin").c_str());
 
     // decoder layers
-    printf("\e[31m[INFO]\e[m Loading weights for Qwen Blocks ...\n");
+    IF_DEBUG( printf("\e[31m[INFO]\e[m Loading weights for Qwen Blocks ...\n");)
     layers.reserve(num_layers);
     for (int layer_idx = 0; layer_idx < config.num_layers; layer_idx++) {
         IF_DEBUG(

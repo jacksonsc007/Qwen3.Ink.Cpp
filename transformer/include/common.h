@@ -25,7 +25,7 @@
 #ifdef DEBUG
 #define IF_DEBUG(code) \
     do {               \
-        code           \
+        code;           \
     } while (0);
 #else
 #define IF_DEBUG(code) \

@@ -1,5 +1,6 @@
 #include "QwenTokenizer.h"
 #include "base64.h"
+#include "common.h"
 #include "model.h"
 
 static const std::string PAT_STR = R"((?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?:$|[^\S])|\s+)";
@@ -72,7 +73,7 @@ auto QwenTokenizer::build_prompt(const std::vector<std::string> &history) const 
 
 auto QwenTokenizer::encode(const std::string &text, int max_length) const -> std::vector<int> {
   auto ids = tokenizer.encode(text);
-  printf("\e[31m[Tokenizer]\e[m Input token length: %zu\n", ids.size());
+  IF_DEBUG(printf("\e[31m[Tokenizer]\e[m Input token length: %zu\n", ids.size());)
   if ((int)ids.size() > max_length) {
     ids.erase(ids.begin(), ids.end() - max_length);
   }
@@ -84,6 +85,17 @@ auto QwenTokenizer::decode(const std::vector<int> &ids) const -> std::string {
   normal_ids.erase(std::remove_if(normal_ids.begin(), normal_ids.end(), [this](int id) { return is_special_id(id); }),
                    normal_ids.end());
   auto text = tokenizer.decode(normal_ids);
+  // Replace <|extra_21|> with <think> and <|extra_22|> with </think>
+  size_t pos = 0;
+  while ((pos = text.find("<|extra_21|>", pos)) != std::string::npos) {
+    text.replace(pos, std::string("<|extra_21|>").length(), "<think>");
+    pos += std::string("<think>").length();
+  }
+  pos = 0;
+  while ((pos = text.find("<|extra_22|>", pos)) != std::string::npos) {
+    text.replace(pos, std::string("<|extra_22|>").length(), "</think>");
+    pos += std::string("</think>").length();
+  }
   return text;
 }
 
