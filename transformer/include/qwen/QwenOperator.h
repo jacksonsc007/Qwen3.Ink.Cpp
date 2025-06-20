@@ -319,6 +319,10 @@ struct q8_repack_1x2_fp32{
     int8_t q_high[32];
 };
 
+void repack_w80_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const uint8_t * B);
+void repack_w81_weight_fp16(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const float * MinB, const uint8_t * B);
+void repack_w81_weight_fp32(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const float * MinB, const uint8_t * B);
+
 class Qwen_Linear_with_bias_Int4 
 {
     // Matrix3D<uint8_t> weight; // each uint8_t contains two int4 weights
@@ -329,14 +333,23 @@ class Qwen_Linear_with_bias_Int4
     // Matrix3D<int8_t> activation_int8;
     // Matrix3D<float> activation_scale;
     int weight_cols, weight_rows;
-    std::unique_ptr<int8_t []> weight_repack_fp16;
-    std::unique_ptr<int8_t []> weight_repack_fp32;
     bool has_bias = false;
     std::string profile_name = "Qwen_Linear_with_bias_Int4";
     ModelContext * context_;
 
+    static void null_deleter(int8_t*) {}
    public:
-    Qwen_Linear_with_bias_Int4(ModelContext * ctx, std::string path, int weight_dim_x, int weight_dim_y,int weight_dim_z) 
+    std::unique_ptr<int8_t, void(*)(int8_t *)> weight_repack_fp16;
+    std::unique_ptr<int8_t, void(*)(int8_t *)> weight_repack_fp32;
+
+
+    Qwen_Linear_with_bias_Int4():weight_repack_fp16(nullptr, null_deleter),weight_repack_fp32(nullptr, null_deleter)
+    {
+        weight_cols = 0;
+        weight_rows = 0;
+        has_bias = false;
+    };
+    Qwen_Linear_with_bias_Int4(ModelContext * ctx, std::string path, int weight_dim_x, int weight_dim_y,int weight_dim_z):weight_repack_fp16(nullptr, null_deleter),weight_repack_fp32(nullptr, null_deleter)
     {
         IF_DEBUG( printf("Constructor Qwen_Linear_with_bias_Int4 ... \n");)
         context_ = ctx;
@@ -369,8 +382,10 @@ class Qwen_Linear_with_bias_Int4
         int num_repack_blocks = weight_dim_y * weight_dim_z / (QK * 2 * 8);
         weight_rows = weight_dim_z;
         weight_cols = weight_dim_y;
-        weight_repack_fp16 = std::make_unique<int8_t[]>( sizeof(q4_repack_2x8_fp16) * num_repack_blocks);
-        weight_repack_fp32 = std::make_unique<int8_t[]>( sizeof(q4_repack_2x8_fp32) * num_repack_blocks);
+        // weight_repack_fp16 = std::make_unique<int8_t[]>( sizeof(q4_repack_2x8_fp16) * num_repack_blocks);
+        // weight_repack_fp32 = std::make_unique<int8_t[]>( sizeof(q4_repack_2x8_fp32) * num_repack_blocks);
+        weight_repack_fp16 = make_aligned_x86<int8_t>(ALIGNMENT,  sizeof(q4_repack_2x8_fp16) * num_repack_blocks);
+        weight_repack_fp32 = make_aligned_x86<int8_t>(ALIGNMENT,  sizeof(q4_repack_2x8_fp32) * num_repack_blocks);
 
         // repack
         IF_DEBUG(printf("Repacking weight ... \n");)
@@ -381,55 +396,60 @@ class Qwen_Linear_with_bias_Int4
         
     };
     
-    void repack_w80_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const uint8_t * B);
-    void repack_w81_weight_fp16(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const float * MinB, const uint8_t * B);
-    void repack_w81_weight_fp32(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, const float * SB, const float * MinB, const uint8_t * B);
     
-    Qwen_Linear_with_bias_Int4(const Qwen_Linear_with_bias_Int4 &other) {
-        IF_DEBUG(printf("Copy Constructor Qwen_Linear_with_bias_Int4 ...");)
+    Qwen_Linear_with_bias_Int4(const Qwen_Linear_with_bias_Int4 &other)
+        : weight_repack_fp16(nullptr, null_deleter),
+          weight_repack_fp32(nullptr, null_deleter)
+    {
+        IF_DEBUG(printf("Copy Constructor Qwen_Linear_with_bias_Int4 ..."));
         weight_rows = other.weight_rows;
         weight_cols = other.weight_cols;
         has_bias = other.has_bias;
         context_ = other.context_;
-        int num_q_blocks = weight_rows * weight_cols / QK;
-        weight_repack_fp16 = std::make_unique<int8_t[]>(sizeof(q4_repack_2x8_fp16) * num_q_blocks );
-        weight_repack_fp32 = std::make_unique<int8_t[]>(sizeof(q4_repack_2x8_fp32) * num_q_blocks );
-        std::copy(other.weight_repack_fp16.get(), other.weight_repack_fp16.get() + sizeof(q4_repack_2x8_fp16) * num_q_blocks, weight_repack_fp16.get());
-        std::copy(other.weight_repack_fp32.get(), other.weight_repack_fp32.get() + sizeof(q4_repack_2x8_fp32) * num_q_blocks, weight_repack_fp32.get());
-        IF_DEBUG(printf(" Done!\n");)
-    };
+        // Use the same allocation logic as the main constructor
+        // num_repack_blocks = weight_dim_y * weight_dim_z / (QK * 2 * 8);
+        int num_repack_blocks = weight_cols * weight_rows / (QK * 2 * 8);
+        size_t fp16_size = sizeof(q4_repack_2x8_fp16) * num_repack_blocks;
+        size_t fp32_size = sizeof(q4_repack_2x8_fp32) * num_repack_blocks;
+        weight_repack_fp16 = make_aligned_x86<int8_t>(ALIGNMENT, fp16_size);
+        weight_repack_fp32 = make_aligned_x86<int8_t>(ALIGNMENT, fp32_size);
+        std::copy(other.weight_repack_fp16.get(), other.weight_repack_fp16.get() + fp16_size, weight_repack_fp16.get());
+        std::copy(other.weight_repack_fp32.get(), other.weight_repack_fp32.get() + fp32_size, weight_repack_fp32.get());
+        IF_DEBUG(printf(" Done!\n"));
+    }
     
     Qwen_Linear_with_bias_Int4(Qwen_Linear_with_bias_Int4 &&other)
+        : weight_repack_fp16(std::move(other.weight_repack_fp16)),
+          weight_repack_fp32(std::move(other.weight_repack_fp32))
     {
-        IF_DEBUG(printf("Move Constructor Qwen_Linear_with_bias_Int4 ...");)
+        IF_DEBUG(printf("Move Constructor Qwen_Linear_with_bias_Int4 ..."));
         weight_rows = other.weight_rows;
         weight_cols = other.weight_cols;
         has_bias = other.has_bias;
         context_ = other.context_;
-        int num_q_blocks = weight_rows * weight_cols / QK;
-        weight_repack_fp16 = std::move(other.weight_repack_fp16);
-        weight_repack_fp32 = std::move(other.weight_repack_fp32);
-        IF_DEBUG(printf(" Done!\n");)
+        IF_DEBUG(printf(" Done!\n"));
     }
     
     Qwen_Linear_with_bias_Int4& operator=(const Qwen_Linear_with_bias_Int4 &other) {
-        IF_DEBUG(printf("Copy Assignment Qwen_Linear_with_bias_Int4 ...");)
+        IF_DEBUG(printf("Copy Assignment Qwen_Linear_with_bias_Int4 ..."));
         if (this == &other) return *this;
         weight_rows = other.weight_rows;
         weight_cols = other.weight_cols;
         has_bias = other.has_bias;
         context_ = other.context_;
-        int num_q_blocks = weight_rows * weight_cols / QK;
-        weight_repack_fp16 = std::make_unique<int8_t[]>(sizeof(q4_repack_2x8_fp16) * num_q_blocks);
-        weight_repack_fp32 = std::make_unique<int8_t[]>(sizeof(q4_repack_2x8_fp32) * num_q_blocks);
-        std::copy(other.weight_repack_fp16.get(), other.weight_repack_fp16.get() + sizeof(q4_repack_2x8_fp16) * num_q_blocks, weight_repack_fp16.get());
-        std::copy(other.weight_repack_fp32.get(), other.weight_repack_fp32.get() + sizeof(q4_repack_2x8_fp32) * num_q_blocks, weight_repack_fp32.get());
-        IF_DEBUG(printf(" Done!\n");)
+        int num_repack_blocks = weight_cols * weight_rows / (QK * 2 * 8);
+        size_t fp16_size = sizeof(q4_repack_2x8_fp16) * num_repack_blocks;
+        size_t fp32_size = sizeof(q4_repack_2x8_fp32) * num_repack_blocks;
+        weight_repack_fp16 = make_aligned_x86<int8_t>(ALIGNMENT, fp16_size);
+        weight_repack_fp32 = make_aligned_x86<int8_t>(ALIGNMENT, fp32_size);
+        std::copy(other.weight_repack_fp16.get(), other.weight_repack_fp16.get() + fp16_size, weight_repack_fp16.get());
+        std::copy(other.weight_repack_fp32.get(), other.weight_repack_fp32.get() + fp32_size, weight_repack_fp32.get());
+        IF_DEBUG(printf(" Done!\n"));
         return *this;
     }
     
     Qwen_Linear_with_bias_Int4& operator=(Qwen_Linear_with_bias_Int4 &&other) {
-        IF_DEBUG(printf("Move Assignment Qwen_Linear_with_bias_Int4 ...");)
+        IF_DEBUG(printf("Move Assignment Qwen_Linear_with_bias_Int4 ..."));
         if (this == &other) return *this;
         weight_rows = other.weight_rows;
         weight_cols = other.weight_cols;
@@ -437,19 +457,12 @@ class Qwen_Linear_with_bias_Int4
         context_ = other.context_;
         weight_repack_fp16 = std::move(other.weight_repack_fp16);
         weight_repack_fp32 = std::move(other.weight_repack_fp32);
-        IF_DEBUG(printf(" Done!\n");)
+        IF_DEBUG(printf(" Done!\n"));
         return *this;
     }
 
-    Qwen_Linear_with_bias_Int4(){
-        weight_cols = 0;
-        weight_rows = 0;
-        has_bias = false;
-        weight_repack_fp16 = nullptr;
-        weight_repack_fp32 = nullptr;
-    };
-
     Matrix3D<float> forward( const Matrix3D<float> &activation);
+    Matrix3D<float> forward_debug(const Matrix3D<float> &activation, int8_t * A_repack, float* weight_repack);
     // Matrix3D<float> forward_gemm ( const Matrix3D<float> &activation);
     // method to evaluate the correctness optimization method
     void forward_reference(const Matrix3D<float> &x, Matrix3D<float> &output);

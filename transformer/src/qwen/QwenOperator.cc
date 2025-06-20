@@ -51,6 +51,30 @@ Matrix3D<float> Qwen3RMSNorm::forward(const Matrix3D<float> &x, const int dim) {
     return output;
 }
 
+Matrix3D<float> Qwen_Linear_with_bias_Int4::forward_debug(const Matrix3D<float> &activation, int8_t * A_repack, float* weight_repack) {
+    const int bs = activation.m_dim_x;
+    const int m = activation.m_dim_y, n = weight_cols, k = activation.m_dim_z, b_size = activation.m_dim_x;
+    const long long ops = (long long)b_size * 2 * (long long)m * (long long)n * (long long)k;
+    PROFILE_START("[" + profile_name + " ::" + "create output]");
+    Matrix3D<float> output (bs, m, n);
+    PROFILE_END("[" + profile_name + " ::" + "create output]");
+    std::ostringstream oss;
+    oss << "[" << profile_name << "-debugging: " << m << " x " << n << " x " << k << "]";
+    std::string formatted_profile_name = oss.str();
+    PROFILE_START_FLOPS(formatted_profile_name, ops);
+
+    PROFILE_START("[" + profile_name + " ::" + "Activation Online Quantization]");
+    quantize_row_q8_1_repack_fp32(activation.data(), A_repack, m * k);
+    PROFILE_END("[" + profile_name + " ::" + "Activation Online Quantization]");
+    PROFILE_START_FLOPS(formatted_profile_name + " ::" + "real computaion", ops);
+    gemm_repack_A81W41_fp32(
+        A_repack, weight_repack, output.data(),
+        m, n, k
+    );
+    PROFILE_END(formatted_profile_name + " ::" + "real computaion");
+    PROFILE_END(formatted_profile_name);
+    return output;
+}
 
 Matrix3D<float> Qwen_Linear_with_bias_Int4::forward(const Matrix3D<float> &activation) {
     const int bs = activation.m_dim_x;
@@ -691,7 +715,7 @@ bool has_nan(Matrix3D<float> & mat)
 #define MinB(i, j, ld) (MinB + (j) * (ld) + (i))
 #define ScaledSumA(i, j, ld) (ScaledSumA + (i) * (ld) + (j))
 
-void Qwen_Linear_with_bias_Int4::repack_w80_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+void repack_w80_weight(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
     const float * SB, const uint8_t * B)
     {
         
@@ -735,7 +759,7 @@ void Qwen_Linear_with_bias_Int4::repack_w80_weight(const int K, const int N, con
     } 
     }
 
-void Qwen_Linear_with_bias_Int4::repack_w81_weight_fp16(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+void repack_w81_weight_fp16(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
     const float * SB, const float * MinB, const uint8_t * B)
     {
 
@@ -786,7 +810,7 @@ void Qwen_Linear_with_bias_Int4::repack_w81_weight_fp16(const int K, const int N
     } 
     }
 
-void Qwen_Linear_with_bias_Int4::repack_w81_weight_fp32(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
+void repack_w81_weight_fp32(const int K, const int N, const int Q_BLK_SIZE, void * B_repack, 
     const float * SB, const float * MinB, const uint8_t * B)
 {
     int num_repack_blk_B_along_K = K / (2 * Q_BLK_SIZE);

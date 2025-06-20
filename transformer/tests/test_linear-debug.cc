@@ -105,32 +105,11 @@ void test_matmul_kernel_throughput(int m, int n, int k) {
     size_t activation_buffer_size = (
         num_q_blocks * size_per_q_block
     );
-    
-    std::string param_path = "model_weights/int4/qwen3-8b-A81W41/model/layers/layer0";
-    ModelContext ctx;
-    ctx.repack_buffer = make_aligned_x86<int8_t>(64, weight_buffer_size);
-    ctx.activation_buffer = make_aligned_x86<int8_t>(64, activation_buffer_size);
-    int sqlen = 320;
-    int mlp_proj_dim = 12288;
-    int hidden_dim = 4096;
-    Qwen_Linear_with_bias_Int4 q_proj(&ctx, param_path + "/mlp/up_proj/", 1, mlp_proj_dim, hidden_dim);
-    Matrix3D<float> input(1, sqlen, hidden_dim);
-    
-    const int num_iters = 100;
-    for (int i = 0; i < num_iters; ++i)
-    {
-        Matrix3D<float> output_linear_2 = q_proj.forward(input);
-    }
+    auto activation_ptr = make_aligned_x86<int8_t>(64, activation_buffer_size);
+    auto weight_ptr = make_aligned_x86<int8_t>(64, weight_buffer_size);
 
-
-
-
-
-
-    
-
-    float * activation_repack_data = (float*)ctx.activation_buffer.get();
-    float * weight_repack_data = (float*) ctx.repack_buffer.get();
+    float * activation_repack_data = (float*)activation_ptr.get();
+    float * weight_repack_data = (float*) weight_ptr.get();
     float* output_data = static_cast<float*>(_mm_malloc(m * n * sizeof(float), MEM_ALIGN));
 
     // Initialize test data with random values
@@ -168,11 +147,18 @@ void test_matmul_kernel_throughput(int m, int n, int k) {
     oss << "[" << "standalone matmul kernel" << ": " << m << " x " << n << " x " << k << "]";
     std::string formatted_profile_name = oss.str();
     
+    // Warm up
+    for (int i = 0; i < 10; ++i) {
+        gemm_repack_A81W41_fp32(
+            A_repack, weight_repack_data, output_data,
+            m, n, k
+        );
+    }
     // Measure throughput
     auto start_time = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_iterations; ++i)
     {
-        // printf("\e[31m[Use buffer from context]\e[m \n");
+        // printf("\e[31m[hi]\e[m \n");
         PROFILE_START_FLOPS(formatted_profile_name, ops);
         gemm_repack_A81W41_fp32(
             A_repack, weight_repack_data, output_data,
@@ -183,12 +169,24 @@ void test_matmul_kernel_throughput(int m, int n, int k) {
     auto end_time = std::chrono::high_resolution_clock::now();
     
     
-    float* linear_weight = (float *)q_proj.weight_repack_fp32.get();
+    std::string param_path = "model_weights/int4/qwen3-8b-A81W41/model/layers/layer0";
+    ModelContext ctx;
+    ctx.repack_buffer = make_aligned_x86<int8_t>(64, weight_buffer_size);
+    ctx.activation_buffer = make_aligned_x86<int8_t>(64, activation_buffer_size);
+
+    
+    int sqlen = 320;
+    int mlp_proj_dim = 12288;
+    int hidden_dim = 4096;
+    Qwen_Linear_with_bias_Int4 q_proj(&ctx, param_path + "/mlp/up_proj/", 1, mlp_proj_dim, hidden_dim);
+    Matrix3D<float> input(1, sqlen, hidden_dim);
+    
+    const int num_iters = 100;
     for (int i = 0; i < num_iters; ++i)
     {
-        Matrix3D<float> output_linear = q_proj.forward_debug(input, A_repack, linear_weight);
+        Matrix3D<float> output_linear = q_proj.forward_debug(input, A_repack, weight_repack_data);
+        Matrix3D<float> output_linear_2 = q_proj.forward(input);
     }
-
 }
 
 void test_mlp_linear_layer_throughput() {
