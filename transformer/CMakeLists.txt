@@ -6,15 +6,12 @@ project(operator_benchmark)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-set(CMAKE_CXX_FLAGS_RELEASE  "-fopenmp -O3  -DQM_x86 -DPROFILER -pthread  -march=native -DNDEBUG")
-
 string(JOIN " "
   CMAKE_CXX_FLAGS_RELEASE
   "-fopenmp"
   "-O3"
   "-DQM_x86"
-  # "-DPROFILER"
-  # "-pthread"
+  "-DPROFILER"
   "-march=native"
   "-DNDEBUG"
 )

@@ -543,9 +543,17 @@ void gemv_repack_A81W41_fp16(
 );
 void gemm_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemv_fp32_rcr_mt_impl_1(float* A, float* B, float* C, const int M, const int N, const int K); 
+
+void batch_gemv_fp32_rcr_naive(const int n_heads, float** A_pointers, float** B_pointers, float** C_pointers, const int M, const int N, const int K);
+void batch_gemv_fp32_rcr_avx(const int n_heads, float** A_pointers, float** B_pointers, float** C_pointers, const int M, const int N, const int K);
+
+void batch_gemv_fp32_rrr_naive(const int n_heads, float** A_pointers, float** B_pointers, float** C_pointers, const int M, const int N, const int K);
+void batch_gemv_fp32_rrr_avx(const int n_heads, float** A_pointers, float** B_pointers, float** C_pointers, const int M, const int N, const int K);
+
 void gemv_fp32_rcr_mt_impl_2(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemm_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemv_fp32_rrr(float* A, float* B, float* C, const int M, const int N, const int K);
 void gemv_fp32_rrr_naive(float* A, float* B, float* C, const int M, const int N, const int K);
+void gemv_fp32_rrr_dummy(float* A, float* B, float* C, const int M, const int N, const int K);
 
 #endif

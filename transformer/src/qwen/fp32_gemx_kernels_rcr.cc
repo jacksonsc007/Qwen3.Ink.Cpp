@@ -1,12 +1,12 @@
 #include <assert.h>
 #include <immintrin.h>
+#include <omp.h>
 #include <stdint.h>
 #include <stdio.h>
 
 #include "QwenOperator.h"
 #include "lib.h"
 #include "operators.h"
-#include <omp.h>
 
 #define MEM_ALIGN 64
 #define UN_INIT -10.0
@@ -29,7 +29,6 @@
 #define KC 500
 
 #define MEM_ALIGN 64
-
 
 #ifndef NITER
 #define NITER 100
@@ -420,7 +419,7 @@ void pack_blockB(float* B, float* blockB, const int nc, const int kc, const int 
     }
 }
 
-}
+}  // namespace
 /*
 j: column index
 i: row index
@@ -453,15 +452,52 @@ void gemm_fp32_rcr(float* A, float* B, float* C, const int M, const int N, const
     }
 }
 
+void batch_gemv_fp32_rcr_naive(const int n_heads, float** A_pointers, float** B_pointers, float** C_pointers,
+                               const int M, const int N, const int K) {
+    // #pragma omp parallel for schedule(dynamic) num_threads(8)
+    #pragma omp parallel for schedule(static) num_threads(4)
+    for (int head_idx = 0; head_idx < n_heads; head_idx++) {
+        for (int j = 0; j < N; j++) {
+            float* A = A_pointers[head_idx];
+            float* B = B_pointers[head_idx];
+            float* C = C_pointers[head_idx];
+            float acc = 0;
+            for (int p = 0; p < K; p++) {
+                acc += *A(0, p) * *B(p, j);
+            }
+            *C(0, j) = acc;
+        }
+    }
+}
+
+void batch_gemv_fp32_rcr_avx(const int n_heads, float** A_pointers, float** B_pointers, float** C_pointers, const int M,
+                             const int N, const int K) {
+    #pragma omp parallel for schedule(dynamic) num_threads(8)
+    for (int head_idx = 0; head_idx < n_heads; head_idx++) {
+        for (int j = 0; j < N; j++) 
+        {
+            float* A = A_pointers[head_idx];
+            float* B = B_pointers[head_idx];
+            float* C = C_pointers[head_idx];
+            __m256 acc = _mm256_setzero_ps();
+            for (int p = 0; p < K; p += 8) 
+            {
+                __m256 lhs = _mm256_loadu_ps(A(0, p));
+                __m256 rhs = _mm256_loadu_ps(B(p, j));
+                acc = _mm256_fmadd_ps(lhs, rhs, acc);
+            }
+            *C(0, j) = hsum_float_8(acc);
+        }
+    }
+}
+
 void gemv_fp32_rcr_mt_impl_1(float* A, float* B, float* C, const int M, const int N, const int K) {
     // PRAGMA_OMP_PARALLEL_FOR
     // PRAGMA_OMP_PARALLEL_FOR_GEMV
-    #pragma omp parallel for num_threads(NTHREADS_GEMV)
-    for( int j = 0; j < N; j++)
-    {
+    // #pragma omp parallel for num_threads(2)
+    for (int j = 0; j < N; j++) {
         __m256 acc = _mm256_setzero_ps();
-        for( int p = 0; p < K; p+=8)
-        {
+        for (int p = 0; p < K; p += 8) {
             __m256 lhs = _mm256_loadu_ps(A(0, p));
             __m256 rhs = _mm256_loadu_ps(B(p, j));
             acc = _mm256_fmadd_ps(lhs, rhs, acc);
@@ -470,13 +506,12 @@ void gemv_fp32_rcr_mt_impl_1(float* A, float* B, float* C, const int M, const in
     }
 }
 
-void kernel_per_thread(float* A, float* B, float* C, const int M, const int N, const int K, const int start_col, const int end_col) {
+void kernel_per_thread(float* A, float* B, float* C, const int M, const int N, const int K, const int start_col,
+                       const int end_col) {
     // PRAGMA_OMP_PARALLEL_FOR
-    for( int j = start_col; j < end_col; j++)
-    {
+    for (int j = start_col; j < end_col; j++) {
         __m256 acc = _mm256_setzero_ps();
-        for( int p = 0; p < K; p+=8)
-        {
+        for (int p = 0; p < K; p += 8) {
             __m256 lhs = _mm256_loadu_ps(A(0, p));
             __m256 rhs = _mm256_loadu_ps(B(p, j));
             acc = _mm256_fmadd_ps(lhs, rhs, acc);
@@ -485,23 +520,21 @@ void kernel_per_thread(float* A, float* B, float* C, const int M, const int N, c
     }
 }
 
-void gemv_fp32_rcr_mt_impl_2(float* A, float* B, float* C, const int M, const int N, const int K)
-{
+void gemv_fp32_rcr_mt_impl_2(float* A, float* B, float* C, const int M, const int N, const int K) {
     int actual_threads = 0;
-    #pragma omp parallel num_threads(4)
+#pragma omp parallel num_threads(4)
     {
-        
-        // Check actual number of threads (only print from thread 0 to avoid multiple prints)
-        #pragma omp single
+// Check actual number of threads (only print from thread 0 to avoid multiple prints)
+#pragma omp single
         {
             actual_threads = omp_get_num_threads();
             // printf("Requested threads: %d, Actual threads: %d\n", NTHREADS, actual_threads);
         }
         int thread_idx = omp_get_thread_num();
         int labor_per_thread = (N + actual_threads - 1) / actual_threads;
-        int start_col = (labor_per_thread) * thread_idx;
+        int start_col = (labor_per_thread)*thread_idx;
         int end_col = (labor_per_thread) * (thread_idx + 1);
-        end_col = end_col > N? N: end_col;
+        end_col = end_col > N ? N : end_col;
         // printf("start: %d, end:%d\n", start_col, end_col);
         kernel_per_thread(A, B, C, M, N, K, start_col, end_col);
     }

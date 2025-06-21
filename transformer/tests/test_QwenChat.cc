@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
     printf("\e[31m[INFO]\e[m Loading Model ...\n");
     std::string model_path = MODEL_REPOSITORY[kernel_type].model_path;
     int data_format = MODEL_REPOSITORY[kernel_type].data_type;
-    qwen_params generation_config{-1, 1, 4096};
+    qwen_params generation_config{-1, 1, 128};
 
     std::cout << R"(   ____                         _____      _____         _          ___    ___    ___ )" << '\n'
               << R"(  /___ \__      __  ___  _ __  |___ /      \_   \ _ __  | | __     / __\  / _ \  / _ \)" << '\n'

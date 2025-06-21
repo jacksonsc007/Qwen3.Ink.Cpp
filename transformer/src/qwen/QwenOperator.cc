@@ -11,6 +11,7 @@
 #include "operators.h"
 #include <blis/cblas.h>
 #include <cblas.h>
+#include <omp.h>
 
     
 
@@ -197,6 +198,22 @@ void bgemmGQA::forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, M
     std::string formatted_profile_name = oss.str();
     PROFILE_START_FLOPS(formatted_profile_name, ops);
 
+    // Prepare array of pointers to A, B, and C matrices
+    float **A_pointers = new float*[bs];
+    float **B_pointers = new float*[bs];
+    float **C_pointers = new float*[bs];
+    // Populate pointers
+    for (int i = 0; i < bs; ++i) {
+        A_pointers[i] = A.data() + i * m * k;
+
+        // Each group shares B matrices
+        int b_index = i / groupsize;
+        // NOTE: memory layout is not contiguous inside matrixview
+        // B_pointers[i] = B.data() + b_index * n * k;
+        B_pointers[i] = &B(b_index, 0, 0);
+
+        C_pointers[i] = output.data() + i * m * n;
+    }
     // a: bs x m x k   key_view: bs x n x k   c: bs x m x n
     int n_heads = bs;
     if ( m > 1)
@@ -204,23 +221,17 @@ void bgemmGQA::forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, M
         for (int head_idx = 0; head_idx < n_heads; head_idx ++)
         {
             gemm_fp32_rcr(
-                A.data() + head_idx * m * k,  // A: bs x m x k
-                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
-                output.data() + head_idx * m * n,  // C: bs x m x n
+                A_pointers[head_idx],
+                B_pointers[head_idx],
+                C_pointers[head_idx],
                 m, n, k
             );
         }
     }
     else {
-        for (int head_idx = 0; head_idx < n_heads; head_idx ++)
-        {
-            gemv_fp32_rcr_mt_impl_2(
-                A.data() + head_idx * m * k,  // A: bs x m x k
-                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
-                output.data() + head_idx * m * n,  // C: bs x m x n
-                m, n, k
-            );
-        }
+        // batch_gemv_fp32_rcr_naive(n_heads, A_pointers, B_pointers, C_pointers, m, n, k);
+        // batch_gemv_fp32_rcr_avx(n_heads, A_pointers, B_pointers, C_pointers, m, n, k);
+        batch_gemv_fp32_rcr_avx(n_heads, A_pointers, B_pointers, C_pointers, m, n, k);
     }
     PROFILE_START("apply scaling factor");
     for (int head_idx = 0; head_idx < n_heads; head_idx ++)
@@ -237,6 +248,9 @@ void bgemmGQA::forward_ink_kernel_qk(Matrix3D<float> &A, MatrixView<float> &B, M
 
 
     PROFILE_END(formatted_profile_name);
+    delete[] A_pointers;
+    delete[] B_pointers;
+    delete[] C_pointers;
 }
 
 void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, Matrix3D<float> &output) {
@@ -268,33 +282,55 @@ void bgemmGQA::forward_ink_kernel_pv(Matrix3D<float> &A, MatrixView<float> &B, M
         output.data()[i] = 0;
     }
 
+    // Prepare array of pointers to A, B, and C matrices
+    float **A_pointers = new float*[bs];
+    float **B_pointers = new float*[bs];
+    float **C_pointers = new float*[bs];
+    // Populate pointers
+    for (int i = 0; i < bs; ++i) {
+        A_pointers[i] = A.data() + i * m * k;
+
+        // Each group shares B matrices
+        int b_index = i / groupsize;
+        // NOTE: memory layout is not contiguous inside matrixview
+        // B_pointers[i] = B.data() + b_index * n * k;
+        B_pointers[i] = &B(b_index, 0, 0);
+
+        C_pointers[i] = output.data() + i * m * n;
+    }
+
     int n_heads = bs;
     if (m > 1)
     {
         for (int head_idx = 0; head_idx < n_heads; head_idx ++)
         {
             gemm_fp32_rrr(
-                A.data() + head_idx * m * k,  // A: bs x m x k
-                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
-                output.data() + head_idx * m * n,  // C: bs x m x n
+                A_pointers[head_idx],
+                B_pointers[head_idx],
+                C_pointers[head_idx],
                 m, n, k
             );
         }
     }
     else{
-        for (int head_idx = 0; head_idx < n_heads; head_idx ++)
-        {
-            // we find multi-threading does not help.
-            gemv_fp32_rrr_naive(
-                A.data() + head_idx * m * k,  // A: bs x m x k
-                &B(head_idx / groupsize, 0, 0),  // B: bs/groupsize x n x k
-                output.data() + head_idx * m * n,  // C: bs x m x n
-                m, n, k
-            );
-        }
-
+        // #pragma omp parallel for num_threads(4)
+        // for (int head_idx = 0; head_idx < n_heads; head_idx ++)
+        // {
+        //     gemv_fp32_rrr_naive(
+        //     // gemv_fp32_rrr_dummy(
+        //         A_pointers[head_idx],
+        //         B_pointers[head_idx],
+        //         C_pointers[head_idx],
+        //         m, n, k
+        //     );
+        // }
+        batch_gemv_fp32_rrr_naive(n_heads, A_pointers, B_pointers,C_pointers, m, n, k);
+        // batch_gemv_fp32_rrr_avx(n_heads, A_pointers, B_pointers,C_pointers, m, n, k);
     }
 
+    delete[] A_pointers;
+    delete[] B_pointers;
+    delete[] C_pointers;
     PROFILE_END(formatted_profile_name);
 }
 
@@ -663,7 +699,8 @@ Matrix3D<float> Qwen3SiLuMul(const Matrix3D<float> &a, const Matrix3D<float> &b)
     float * output_ptr = output.data();
     const float * a_ptr = a.data();
     const float * b_ptr = b.data();
-    #pragma omp parallel for simd num_threads(16)
+    // #pragma omp parallel for simd num_threads(16)
+    #pragma omp parallel for simd num_threads(8)
     for (int i = 0; i < len; i++) {
         float v = a_ptr[i];
         float silu_v = v * (1.0 / (1.0 + exp(-1 * v)));

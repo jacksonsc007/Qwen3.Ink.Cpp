@@ -15,9 +15,10 @@
 #define NTHREADS 16
 #endif
 
+#define NTHREADS_GEMV 8
 #define OMP_SCHEDULE dynamic
 #define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")
-#define PRAGMA_OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS)")
+#define PRAGMA_OMP_PARALLEL_FOR_GEMV _Pragma("omp parallel for schedule(OMP_SCHEDULE) num_threads(NTHREADS_GEMV)")
 
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -124,7 +125,8 @@ void gemv_repack_A81W41_fp16(
     // Process single row of A
     struct q8_repack_1x2_fp16 * A_ptr = A_ptr_start;
 
-    PRAGMA_OMP_PARALLEL_FOR
+    // PRAGMA_OMP_PARALLEL_FOR
+    PRAGMA_OMP_PARALLEL_FOR_GEMV
     for(int j = 0; j < nb_n; j++)
     {
         struct q4_repack_2x8_fp16 * B_ptr = B_ptr_start + j * nb_k;
