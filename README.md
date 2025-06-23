@@ -1,10 +1,11 @@
 # Qwen3.Ink.Cpp
 `Qwen3.Ink.Cpp` is an self-contained, study-oriented repository, which reproduce Qwen3-8b model based on pure C++.
 
-<video width="640" height="360" controls>  
-  <source src="assets/videos/comparison.mp4" type="video/mp4">
-  Your browser does not support MP4 video.
-</video>
+
+
+https://github.com/user-attachments/assets/9a211f9e-cb5b-4086-a9ee-6ca9985661f4
+
+
 
 # Specification
 - evaluate-qwen3_8b_W4.ipynb
