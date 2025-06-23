@@ -1,44 +1,23 @@
-# Tutorial for TinyChat: Optimizing LLM on Edge Devices
+# Qwen3.Ink.Cpp
+`Qwen3.Ink.Cpp` is an self-contained, study-oriented repository, which reproduce Qwen3-8b model based on pure C++.
 
-This is a lab for [efficientml.ai course](https://efficientml.ai/).
+<video width="640" height="360" controls>  
+  <source src="assets/videos/comparison.mp4" type="video/mp4">
+  Your browser does not support MP4 video.
+</video>
 
-Running large language models (LLMs) on the edge is of great importance. By embedding LLMs directly into real-world systems such as in-car entertainment systems or spaceship control interfaces, users can access instant responses and services without relying on a stable internet connection. Moreover, this approach alleviates the inconvenience of queuing delays often associated with cloud services. As such, running LLMs on the edge not only enhances user experience but also addresses privacy concerns, as sensitive data remains localized and reduces the risk of potential breaches.
+# Specification
+- evaluate-qwen3_8b_W4.ipynb
+Assess the impact of **weight-only quantization** on Qwen3's performance, by evaluating its perplexity on `wikitext`  and benchmarked it on GSM8k.
 
-However, despite their impressive capabilities, LLMs have traditionally been quite resource-intensive. They require considerable computational power and memory resources, which makes it challenging to run these models on edge devices with limited capabilities.
+- evaluate-qwen3_8b_A8W4.ipynb
+Assess the impact of **activation and weight quantization** on Qwen3's performance, by evaluating its perplexity on `wikitext`  and benchmarked it on GSM8k.
 
-In this lab, you will learn the following:
-* How to deploy an LLaMA2-7B-chat with TinyChatEngine on your computer.
-* Implement different optimization techniques (loop unrolling, multithreading, and SIMD programming) for the linear kernel.
-* Observe the end-to-end latency improvement achieved by each technique.
+- save_A81W41_quantized_weight-qwen3_8b.ipynb
+Apply A81W41 quantization on FP32 model and save the quantized weights and other meta information to local disk.
 
+- save_A80W40_quantized_weight-qwen3_8b.ipynb
+Apply A80W40 quantization on FP32 model and save the quantized weights and other meta information to local disk.
 
-## TinyChatEngine
-
-This tutorial is based on [TinyChatEngine](https://github.com/mit-han-lab/TinyChatEngine), a powerful neural network library specifically designed for the efficient deployment of quantized large language models (LLMs) on edge devices. 
-
-![demo](assets/figures/chat.gif)
-
-## Tutorial document
-
-Please check this document and follow the instructions which will walk you through the tutorial: https://docs.google.com/document/d/13IaTfPKjp0KiSBEhPdX9IxgXMIAZfiFjor37OWQJhMM/edit?usp=sharing
-
-## Submission
-
-* Report: Please write a report ([form](https://docs.google.com/document/d/17Z_ab8EhDvjcigLXdDqMqd2LTVsZ4CnpOYNkRTrnTmU/edit?usp=sharing)) that includes your code and the performance improvement for each starter code. 
-* Code: Use `git diff` to generate a patch for your implementation. We will use this patch to test the correctness of your code. Please name your patch as `{studentID}-{ISA}.patch` where {ISA} should be one of x86 and ARM, depending on your computer.
-
-## Related Projects
-
-[TinyChatEngine](https://github.com/mit-han-lab/TinyChatEngine).
-
-[TinyEngine](https://github.com/mit-han-lab/tinyengine).
-
-[Smoothquant](https://github.com/mit-han-lab/smoothquant).
-
-[AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration](https://github.com/mit-han-lab/llm-awq)
-
-## Acknowledgement
-
-[llama.cpp](https://github.com/ggerganov/llama.cpp)
-
-[transformers](https://github.com/huggingface/transformers)
+- quantize_methods.py
+This library houses the de facto quantization methods used in the repository.

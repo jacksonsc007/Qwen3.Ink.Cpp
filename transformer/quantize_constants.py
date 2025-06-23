@@ -1,1 +1,0 @@
-STORE_FP16 = False
