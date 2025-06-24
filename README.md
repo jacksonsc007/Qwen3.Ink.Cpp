@@ -88,8 +88,8 @@ Here is an overview of the essential files:
 
 | File Name | Description |
 |----------|-------------|
-| `evaluate-qwen3_8b_W4.ipynb` | Evaluates the impact of **weight-only quantization** on Qwen3's performance using perplexity on `wikitext` and benchmarking on GSM8K. |
-| `evaluate-qwen3_8b_A8W4.ipynb` | Evaluates the impact of **activation and weight quantization** on Qwen3's performance using perplexity on `wikitext` and benchmarking on GSM8K. |
+| `evaluate-qwen3_8b_W4.ipynb` | Evaluates the impact of **weight-only quantization** on Qwen3's performance. Perplexity on `wikitext` and the benchmark result on GSM8K are reported. |
+| `evaluate-qwen3_8b_A8W4.ipynb` | Evaluates the impact of **activation and weight quantization** on Qwen3's performance. Perplexity on `wikitext` and the benchmark result on GSM8K are reported.  |
 | `save_A81W41_quantized_weight-qwen3_8b.ipynb` | Applies A81W41 quantization to the FP32 model and saves the quantized weights and metadata to disk. |
 | `save_A80W40_quantized_weight-qwen3_8b.ipynb` | Applies A80W40 quantization to the FP32 model and saves the quantized weights and metadata to disk. |
 | `quantize_methods.py` | Contains the core quantization methods used throughout the repository. |
@@ -112,3 +112,6 @@ Much credit goes to [Professor Han's](https://hanlab.mit.edu/songhan) for his op
 2. [GGML](https://github.com/ggml-org/ggml)  
 3. [llama.cpp](https://github.com/ggml-org/llama.cpp)  
 4. [AWQ](https://github.com/mit-han-lab/llm-awq)  
+
+### Additional Resources
+Much appreciation to [Ｒｅ：ゼロから始める異世界生活](https://ncode.syosetu.com/n2267be/) for providing the benchmark text during the development.

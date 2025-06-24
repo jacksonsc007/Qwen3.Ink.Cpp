@@ -34,3 +34,4 @@ INT4/
 models/
 model_weights/
 qwen-7b-chat/
+**/__pycache__/
