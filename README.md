@@ -3,9 +3,36 @@
 
 This project integrates quantization methods and optimized QGEMM(Quantized GEMM) kernels in [GGML](https://github.com/ggml-org/ggml), along with the SIMD-aware weight packing strategy proposed in [AWQ](https://arxiv.org/abs/2306.00978). By combining these techniques, it endeavors to achieve the best of both worlds.
 
-Compared to the implementation in [llama.cpp](https://github.com/ggml-org/llama.cpp) for `Qwen3-8B`, this project delivers better performance during the **prompting phase**, while maintaining comparable (slightly lower) performance during the **autoregressive generation phase**.
+In contrast to the implementation in [llama.cpp](https://github.com/ggml-org/llama.cpp) for `Qwen3-8B`, this project delivers better performance during the **prompt phase**, while maintaining comparable (slightly lower) performance during the **autoregressive generation phase**.
 
 [Performance comparison video](https://github.com/user-attachments/assets/9a211f9e-cb5b-4086-a9ee-6ca9985661f4)
+
+### Benchmark
+
+- Performance
+
+| model        |  quantization scheme | perpelexity | gsm8k | 
+| ------------ |  ------------------- | ----------- | ----- | 
+| qwen3-8b     |  fp16                | 10.97       | 87.57 | 
+| qwen3-8b     |  w41                 | 12.08       | 86.20 | 
+| qwen3-8b     |  w40                 | 11.73       | 84.99 | 
+| qwen3-8b     |  w4z                 | 11.49       | 85.52 | 
+| qwen3-8b     |  A80W41              | 12.06       | 87.03 | 
+| qwen3-8b     |  A80W4z              | 11.53       | 85.29 | 
+| qwen3-8b-awq |  -                   | 11.52       | 86.35 | 
+
+- Efficiency
+
+| model                          |       runtime mem footprint | backend    | threads |            test |                  t/s |
+| ------------------------------ | ---------: | ---------- | ------: | --------------: | -------------------: |
+| qwen3 8B Q4_0                  |   8.6 GiB | CPU        |      16 |           pp322 |         60.36 ± 0.23 |
+| qwen3 8B Q4_0                  |   8.6 GiB | CPU        |      16 |           tg128 |         10.40 ± 0.00 |
+| qwen3 8B A81Q41-repack-FP16_FP32_mix ink                  |   14.0 GiB | CPU        |      16 |           pp322 |    134.35   |
+| qwen3 8B A81Q41-repack-FP16_FP32_mix ink                  |   14.0 GiB | CPU        |      16 |           tg128 |       9.26   |
+
+
+- We leveraged `llama-bench` to benchmark llama.cpp models, and our own code along with custom input to measure our model.  is not a strict comparison.
+- `tg128` stands for generation of 128 tokens in autoregreesive generation phase. `pp322` denotes processing an input prompt with 322 tokens.
 
 ---
 
@@ -44,7 +71,7 @@ Run the build script:
 bash build_qwen.sh
 ```
 
-### Chatting with the Model
+### Chatting with the Model  ε≡٩(๑>₃<)۶
 
 Once built, you can start interacting with the model:
 
@@ -58,20 +85,14 @@ build/chat
 
 Here is an overview of the essential files:
 
-- `evaluate-qwen3_8b_W4.ipynb`  
-  Evaluates the impact of **weight-only quantization** on Qwen3's performance using perplexity on `wikitext` and benchmarking on GSM8K.
 
-- `evaluate-qwen3_8b_A8W4.ipynb`  
-  Evaluates the impact of **activation and weight quantization** on Qwen3's performance using perplexity on `wikitext` and benchmarking on GSM8K.
-
-- `save_A81W41_quantized_weight-qwen3_8b.ipynb`  
-  Applies A81W41 quantization to the FP32 model and saves the quantized weights and metadata to disk.
-
-- `save_A80W40_quantized_weight-qwen3_8b.ipynb`  
-  Applies A80W40 quantization to the FP32 model and saves the quantized weights and metadata to disk.
-
-- `quantize_methods.py`  
-  Contains the core quantization methods used throughout the repository.
+| File Name | Description |
+|----------|-------------|
+| `evaluate-qwen3_8b_W4.ipynb` | Evaluates the impact of **weight-only quantization** on Qwen3's performance using perplexity on `wikitext` and benchmarking on GSM8K. |
+| `evaluate-qwen3_8b_A8W4.ipynb` | Evaluates the impact of **activation and weight quantization** on Qwen3's performance using perplexity on `wikitext` and benchmarking on GSM8K. |
+| `save_A81W41_quantized_weight-qwen3_8b.ipynb` | Applies A81W41 quantization to the FP32 model and saves the quantized weights and metadata to disk. |
+| `save_A80W40_quantized_weight-qwen3_8b.ipynb` | Applies A80W40 quantization to the FP32 model and saves the quantized weights and metadata to disk. |
+| `quantize_methods.py` | Contains the core quantization methods used throughout the repository. |
 
 ---
 
