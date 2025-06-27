@@ -121,7 +121,8 @@ Much credit goes to [Professor Han's](https://hanlab.mit.edu/songhan) for his op
 1. [sgemm.c](https://github.com/salykova/sgemm.c.git)  
 2. [GGML](https://github.com/ggml-org/ggml)  
 3. [llama.cpp](https://github.com/ggml-org/llama.cpp)  
-4. [AWQ](https://github.com/mit-han-lab/llm-awq)  
+4. [AWQ](https://github.com/mit-han-lab/llm-awq)
+5. [quantized-gemm](https://github.com/jacksonsc007/quantized-gemm)
 
 ### Additional Resources
 Much appreciation to [Ｒｅ：ゼロから始める異世界生活](https://ncode.syosetu.com/n2267be/) for providing the benchmark text during the development.
